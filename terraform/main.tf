@@ -34,6 +34,7 @@ resource "google_project_service" "apis" {
     "iam.googleapis.com",
     "compute.googleapis.com",
     "iap.googleapis.com",
+    "cloudbuild.googleapis.com",
   ])
 
   service            = each.key

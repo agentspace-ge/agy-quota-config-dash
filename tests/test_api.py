@@ -87,3 +87,24 @@ def test_audit_log_endpoint(client):
     events = response.json()
     assert isinstance(events, list)
     assert len(events) >= 1
+
+
+def test_create_and_delete_user(client):
+    new_email = "new.dev@example.com"
+    # Create user
+    res_create = client.post("/api/users", json={"email": new_email, "is_exempt": False})
+    assert res_create.status_code == 201
+    assert res_create.json()["email"] == new_email
+
+    # Get user
+    res_get = client.get(f"/api/users/{new_email}")
+    assert res_get.status_code == 200
+
+    # Delete user
+    res_del = client.delete(f"/api/users/{new_email}")
+    assert res_del.status_code == 200
+    assert res_del.json()["email"] == new_email
+
+    # Verify deleted
+    res_get2 = client.get(f"/api/users/{new_email}")
+    assert res_get2.status_code == 404

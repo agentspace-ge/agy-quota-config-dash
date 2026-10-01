@@ -60,6 +60,11 @@
       const [pricingOpen, setPricingOpen] = React.useState(false);
       const [auditOpen, setAuditOpen] = React.useState(false);
       const [addUserOpen, setAddUserOpen] = React.useState(false);
+      const [newUserEmail, setNewUserEmail] = React.useState('');
+      const [newUserExempt, setNewUserExempt] = React.useState(false);
+      const [newUserCustomQuota, setNewUserCustomQuota] = React.useState(false);
+      const [newUserQuotaVal, setNewUserQuotaVal] = React.useState(10);
+      const [newUserOverageVal, setNewUserOverageVal] = React.useState(2);
       const [auditEvents, setAuditEvents] = React.useState([]);
       const [snackbar, setSnackbar] = React.useState({ open: false, message: '', severity: 'info' });
 
@@ -128,6 +133,49 @@
           setSnackbar({ open: true, message: `Updated access status for ${email}`, severity: 'success' });
         } catch (e) {
           setSnackbar({ open: true, message: 'Failed to toggle lock', severity: 'error' });
+        }
+      };
+
+      const handleCreateUser = async (payload) => {
+        try {
+          const res = await fetch('/api/users', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.detail || 'Failed to create user');
+          }
+          const created = await res.json();
+          setUsers(prev => [created, ...prev]);
+          const newKPIs = await fetch('/api/evaluator/kpis').then(r => r.json());
+          setKPIs(newKPIs);
+          setAddUserOpen(false);
+          setSnackbar({ open: true, message: `Developer ${created.email} pre-provisioned successfully!`, severity: 'success' });
+        } catch (e) {
+          setSnackbar({ open: true, message: e.message || 'Failed to add developer', severity: 'error' });
+        }
+      };
+
+      const handleDeleteUser = async (email) => {
+        if (!window.confirm(`Are you sure you want to remove ${email} from the quota dashboard?`)) return;
+        try {
+          const res = await fetch(`/api/users/${encodeURIComponent(email)}`, { method: 'DELETE' });
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.detail || 'Failed to delete user');
+          }
+          setUsers(prev => prev.filter(u => u.email !== email));
+          if (selectedUser && selectedUser.email === email) {
+            setSelectedUser(null);
+            setDrawerOpen(false);
+          }
+          const newKPIs = await fetch('/api/evaluator/kpis').then(r => r.json());
+          setKPIs(newKPIs);
+          setSnackbar({ open: true, message: `Developer ${email} deleted successfully.`, severity: 'info' });
+        } catch (e) {
+          setSnackbar({ open: true, message: e.message || 'Failed to delete user', severity: 'error' });
         }
       };
 
@@ -431,6 +479,16 @@
                                   ? 'Manage'
                                   : 'Lock'}
                               </Button>
+                              <Button
+                                size="small"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeleteUser(user.email);
+                                }}
+                                sx={{ color: '#d93025', fontWeight: 500, ml: 0.5 }}
+                              >
+                                Delete
+                              </Button>
                             </TableCell>
                           </TableRow>
                         );
@@ -533,6 +591,20 @@
                     }
                     label="Exempt from Quota Throttling"
                   />
+                  <Divider sx={{ my: 2 }} />
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Typography variant="body2" sx={{ color: '#d93025', fontWeight: 600 }}>
+                      Remove Developer
+                    </Typography>
+                    <Button
+                      variant="outlined"
+                      color="error"
+                      size="small"
+                      onClick={() => handleDeleteUser(selectedUser.email)}
+                    >
+                      Delete
+                    </Button>
+                  </Box>
                 </Paper>
               </Drawer>
             )}
@@ -786,6 +858,91 @@
                 <Button onClick={() => setSettingsOpen(false)}>Cancel</Button>
                 <Button variant="contained" onClick={() => handleSaveConfig(config)} sx={{ bgcolor: '#1a73e8' }}>
                   Save Settings
+                </Button>
+              </DialogActions>
+            </Dialog>
+
+            {/* Add Developer Modal */}
+            <Dialog open={addUserOpen} onClose={() => setAddUserOpen(false)} maxWidth="xs" fullWidth>
+              <DialogTitle sx={{ fontWeight: 700 }}>
+                Pre-provision Developer
+              </DialogTitle>
+              <DialogContent dividers>
+                <Typography variant="body2" sx={{ color: '#5f6368', mb: 2 }}>
+                  Pre-allocate quota credit and register a developer before their first Antigravity query.
+                </Typography>
+                <TextField
+                  fullWidth
+                  size="small"
+                  label="Developer Email"
+                  placeholder="developer@ayratk.altostrat.com"
+                  value={newUserEmail}
+                  onChange={e => setNewUserEmail(e.target.value)}
+                  sx={{ mb: 2 }}
+                />
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={newUserCustomQuota}
+                      onChange={e => setNewUserCustomQuota(e.target.checked)}
+                      color="primary"
+                    />
+                  }
+                  label="Assign Custom Quota"
+                  sx={{ mb: 1, display: 'block' }}
+                />
+                {newUserCustomQuota && (
+                  <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
+                    <TextField
+                      size="small"
+                      label="Quota ($)"
+                      type="number"
+                      value={newUserQuotaVal}
+                      onChange={e => setNewUserQuotaVal(parseFloat(e.target.value) || 0)}
+                    />
+                    <TextField
+                      size="small"
+                      label="Overage ($)"
+                      type="number"
+                      value={newUserOverageVal}
+                      onChange={e => setNewUserOverageVal(parseFloat(e.target.value) || 0)}
+                    />
+                  </Box>
+                )}
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={newUserExempt}
+                      onChange={e => setNewUserExempt(e.target.checked)}
+                      color="secondary"
+                    />
+                  }
+                  label="Exempt from weekly throttling"
+                />
+              </DialogContent>
+              <DialogActions sx={{ px: 3, py: 2 }}>
+                <Button onClick={() => setAddUserOpen(false)}>Cancel</Button>
+                <Button
+                  variant="contained"
+                  onClick={() => {
+                    if (!newUserEmail || !newUserEmail.includes('@')) {
+                      setSnackbar({ open: true, message: 'Please enter a valid developer email address', severity: 'error' });
+                      return;
+                    }
+                    handleCreateUser({
+                      email: newUserEmail.trim(),
+                      is_exempt: newUserExempt,
+                      has_custom_quota: newUserCustomQuota,
+                      custom_quota_usd: newUserCustomQuota ? newUserQuotaVal : null,
+                      custom_overage_usd: newUserCustomQuota ? newUserOverageVal : null,
+                    });
+                    setNewUserEmail('');
+                    setNewUserExempt(false);
+                    setNewUserCustomQuota(false);
+                  }}
+                  sx={{ bgcolor: '#1a73e8' }}
+                >
+                  Add Developer
                 </Button>
               </DialogActions>
             </Dialog>

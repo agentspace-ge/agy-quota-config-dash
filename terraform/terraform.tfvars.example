@@ -1,22 +1,58 @@
-# Sample Terraform variable configuration
-project_id            = "ge-ent-app-demo"
+# ==============================================================================
+# Antigravity Quota Portal - Example Terraform Variables
+# Copy to terraform.tfvars and customize for your project
+# ==============================================================================
+
+project_id            = "YOUR_PROJECT_ID"
 region                = "us-east5"
 bigquery_dataset_name = "antigravity_inference_logs"
-enabled_group_email   = "antigravity-enabled@yourcompany.com"
-disabled_group_email  = "antigravity-disabled@yourcompany.com"
+enabled_group_email   = "antigravity-enabled@gcp.altostrat.com"
+disabled_group_email  = "antigravity-disabled@gcp.altostrat.com"
 app_timezone          = "America/Los_Angeles"
 default_quota_usd     = 10.00
 default_overage_usd   = 2.00
 image_tag             = "latest"
 
-# External Application Load Balancer & IAP Configuration
-# Phase 1: Set enable_lb = false to reserve static IP and get sslip.io redirect URI.
-# Phase 2: Create OAuth Client in Google Cloud Console, set credentials and enable_lb = true.
+# ------------------------------------------------------------------------------
+# Access Mode & Argolis Governance
+# Options:
+#   - "proxy": Private Cloud Run (ingress: internal, IAM authentication strictly
+#              enforced). Recommended for Google Cloud Argolis demo environments
+#              and Cloud Shell. Access via: ./scripts/argolis_access.sh proxy
+#   - "internal_lb": Regional Internal Application Load Balancer via Serverless NEG
+#              on a private VPC subnet.
+#   - "external_lb": External HTTPS Application Load Balancer with Identity-Aware
+#              Proxy (IAP) & Google-managed SSL.
+#   - "direct": Direct Cloud Run URL (requires IAM authentication).
+# ------------------------------------------------------------------------------
+access_mode        = "proxy"
+proxy_ingress_type = "all" # "all" for IAM-authenticated local proxy bridge, or "internal" for VPC-only
+
+# Argolis Demo Environment Identity Bindings
+argolis_tenant_domain    = "gcp.altostrat.com" # e.g. gcp.altostrat.com or <tenant>.altostrat.com
+argolis_allowed_invokers = [
+  # "user:admin@gcp.altostrat.com",
+  # "group:cloud-engineers@gcp.altostrat.com",
+]
+
+# ------------------------------------------------------------------------------
+# Regional Internal Load Balancer Settings (used when access_mode = "internal_lb")
+# ------------------------------------------------------------------------------
+vpc_network                     = "default"
+vpc_subnet                      = "default"
+create_proxy_only_subnet        = false
+proxy_only_subnet_name          = "antigravity-portal-proxy-subnet"
+proxy_only_subnet_cidr          = "10.128.0.0/23"
+create_internal_firewall_rule   = false
+internal_firewall_source_ranges = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
+
+# ------------------------------------------------------------------------------
+# External Load Balancer & IAP Settings (used when access_mode = "external_lb")
+# ------------------------------------------------------------------------------
 enable_lb               = false
-domain_override         = "" # Leave empty to use sslip.io magic DNS
+domain_override         = ""
 iap_oauth_client_id     = ""
 iap_oauth_client_secret = ""
 iap_allowed_members     = [
-  "domain:yourcompany.com",
-  # "user:admin@yourcompany.com"
+  "domain:gcp.altostrat.com"
 ]

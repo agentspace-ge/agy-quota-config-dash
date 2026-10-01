@@ -3,9 +3,13 @@ set -euo pipefail
 
 # Configuration
 PROJECT_ID="${1:-${PROJECT_ID:-}}"
-REGION="${2:-${REGION:-us-central1}}"
+REGION="${2:-${REGION:-us-east5}}"
 REPO_NAME="antigravity-portal"
 IMAGE_TAG="${3:-latest}"
+
+if [[ -z "$PROJECT_ID" ]]; then
+  PROJECT_ID="$(gcloud config get-value project 2>/dev/null || true)"
+fi
 
 if [[ -z "$PROJECT_ID" ]]; then
   echo "Error: PROJECT_ID must be provided as arg 1 or via environment variable."
@@ -13,16 +17,31 @@ if [[ -z "$PROJECT_ID" ]]; then
   exit 1
 fi
 
-IMAGE_URI="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO_NAME}/app:${IMAGE_TAG}"
+IMAGE_URI="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO_NAME}/antigravity-quota-portal:${IMAGE_TAG}"
 
-echo "==> Configuring Podman authentication for Artifact Registry..."
-gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet || true
-gcloud auth print-access-token | podman login -u oauth2accesstoken --password-stdin "${REGION}-docker.pkg.dev"
+echo "========================================================================"
+echo " Building & Publishing Container Image for Cloud Run"
+echo " Target URI: ${IMAGE_URI}"
+echo "========================================================================"
 
-echo "==> Building container image using Podman..."
-podman build -t "${IMAGE_URI}" -f Containerfile .
+# Check for container builder runtime
+if command -v podman &>/dev/null; then
+  echo "==> Using Podman to build and push..."
+  gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet || true
+  gcloud auth print-access-token | podman login -u oauth2accesstoken --password-stdin "${REGION}-docker.pkg.dev"
+  podman build -t "${IMAGE_URI}" -f Dockerfile .
+  podman push "${IMAGE_URI}"
+elif command -v docker &>/dev/null && docker info &>/dev/null; then
+  echo "==> Using local Docker to build and push..."
+  gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet || true
+  docker build -t "${IMAGE_URI}" -f Dockerfile .
+  docker push "${IMAGE_URI}"
+else
+  echo "==> Local container engine unavailable. Using Google Cloud Build..."
+  gcloud builds submit \
+    --project="${PROJECT_ID}" \
+    --tag="${IMAGE_URI}" \
+    .
+fi
 
-echo "==> Pushing image to Artifact Registry (${IMAGE_URI})..."
-podman push "${IMAGE_URI}"
-
-echo "==> Build and push complete!"
+echo "==> Build and push complete: ${IMAGE_URI}"

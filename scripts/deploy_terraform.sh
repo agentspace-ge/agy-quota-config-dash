@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+export PATH="/opt/homebrew/bin:$PATH"
+
 TF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../terraform" && pwd)"
 
 TF_CMD="$(command -v tofu 2>/dev/null || command -v terraform 2>/dev/null || true)"

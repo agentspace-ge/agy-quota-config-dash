@@ -86,6 +86,15 @@ class FirestoreDatabase:
         self.users_collection.document(key).set(user.model_dump(mode="json"), merge=True)
         return user
 
+    def delete_user(self, email: str) -> bool:
+        key = email.lower().strip()
+        doc_ref = self.users_collection.document(key)
+        doc = doc_ref.get()
+        if doc.exists:
+            doc_ref.delete()
+            return True
+        return False
+
     def save_users(self, users: list[User]) -> None:
         batch = self.client.batch()
         now = datetime.now(UTC)

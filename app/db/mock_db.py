@@ -242,6 +242,14 @@ class MockDatabase:
             self._users[user.email.lower().strip()] = user.model_copy(deep=True)
             return user.model_copy(deep=True)
 
+    def delete_user(self, email: str) -> bool:
+        with self._lock:
+            key = email.lower().strip()
+            if key in self._users:
+                del self._users[key]
+                return True
+            return False
+
     def save_users(self, users: list[User]) -> None:
         with self._lock:
             now = datetime.now(UTC)

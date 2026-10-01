@@ -15,7 +15,7 @@ resource "google_cloud_run_v2_service" "portal_service" {
   location = var.region
   project  = var.project_id
 
-  ingress = var.enable_lb ? "INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER" : "INGRESS_TRAFFIC_ALL"
+  ingress = local.cloud_run_ingress
 
   template {
     service_account = google_service_account.portal_sa.email
@@ -26,7 +26,7 @@ resource "google_cloud_run_v2_service" "portal_service" {
     }
 
     containers {
-      image = "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.docker_repo.repository_id}/app:${var.image_tag}"
+      image = local.container_image
 
       resources {
         limits = {
@@ -81,22 +81,39 @@ resource "google_cloud_run_v2_service" "portal_service" {
     google_project_iam_member.bq_job_user,
     google_bigquery_dataset_iam_member.bq_data_viewer,
     google_project_iam_member.firestore_user,
-    google_project_iam_member.logging_log_writer
+    google_project_iam_member.logging_log_writer,
+    terraform_data.cloud_build_image
   ]
 }
 
-# IAP Service Agent Identity
+# IAP Service Agent Identity (provisioned when External ALB with IAP is enabled)
 resource "google_project_service_identity" "iap_sa" {
+  count    = local.is_external_lb ? 1 : 0
   provider = google-beta
   project  = var.project_id
   service  = "iap.googleapis.com"
 }
 
-# Grant Cloud Run Invoker to IAP Service Agent so the Load Balancer can route requests to Cloud Run
+# Grant Cloud Run Invoker to IAP Service Agent so the External Load Balancer can route requests to Cloud Run
 resource "google_cloud_run_v2_service_iam_member" "iap_invoker" {
+  count    = local.is_external_lb ? 1 : 0
   project  = var.project_id
   location = var.region
   name     = google_cloud_run_v2_service.portal_service.name
   role     = "roles/run.invoker"
-  member   = "serviceAccount:${google_project_service_identity.iap_sa.email}"
+  member   = "serviceAccount:${google_project_service_identity.iap_sa[0].email}"
 }
+
+# Argolis & IAM Authenticated Invokers
+# Strictly enforces --no-allow-unauthenticated by granting roles/run.invoker
+# exclusively to authorized Argolis domain/group/user identities.
+resource "google_cloud_run_v2_service_iam_member" "argolis_invokers" {
+  for_each = toset(local.effective_invokers)
+
+  project  = var.project_id
+  location = var.region
+  name     = google_cloud_run_v2_service.portal_service.name
+  role     = "roles/run.invoker"
+  member   = each.value
+}
+

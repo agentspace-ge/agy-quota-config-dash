@@ -235,3 +235,28 @@ def toggle_user_lock(email: str, db=Depends(get_db), identity=Depends(get_identi
     )
 
     return user
+
+
+@router.delete("/{email}")
+def delete_user(email: str, db=Depends(get_db)):
+    """Delete a user from the quota portal database."""
+    user = db.get_user(email)
+    if not user:
+        raise HTTPException(status_code=404, detail=f"User {email} not found")
+
+    deleted = db.delete_user(email)
+    if not deleted:
+        raise HTTPException(status_code=500, detail=f"Failed to delete user {email}")
+
+    db.add_audit_event(
+        AuditEvent(
+            event_id=f"evt-del-{uuid.uuid4().hex[:8]}",
+            timestamp=datetime.now(UTC),
+            action="USER_DELETED",
+            triggered_by="admin_ui",
+            target_user=email.lower().strip(),
+            details={"email": email},
+        )
+    )
+
+    return {"message": f"User {email} deleted successfully", "email": email}

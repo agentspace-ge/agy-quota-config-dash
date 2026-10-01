@@ -1,27 +1,23 @@
 # ==============================================================================
 # External Application Load Balancer with Cloud Run Serverless NEG & IAP
+# Active when access_mode == "external_lb" or legacy enable_lb == true
 # ==============================================================================
 
 # 1. Global Static IPv4 Address for the Load Balancer
 resource "google_compute_global_address" "lb_ip" {
-  project    = var.project_id
-  name       = "antigravity-portal-ip"
-  ip_version = "IPV4"
+  count       = local.is_external_lb ? 1 : 0
+  project     = var.project_id
+  name        = "antigravity-portal-ip"
+  ip_version  = "IPV4"
 
   lifecycle {
     prevent_destroy = true
   }
 }
 
-locals {
-  # If domain_override is set, use it.
-  # Otherwise, derive a sslip.io magic-DNS hostname from the reserved global static IP.
-  lb_hostname = var.domain_override != "" ? var.domain_override : "${replace(google_compute_global_address.lb_ip.address, ".", "-")}.sslip.io"
-}
-
 # 2. Serverless Network Endpoint Group (NEG) pointing to the Cloud Run service
 resource "google_compute_region_network_endpoint_group" "serverless_neg" {
-  count                 = var.enable_lb ? 1 : 0
+  count                 = local.is_external_lb ? 1 : 0
   project               = var.project_id
   region                = var.region
   name                  = "antigravity-portal-neg"
@@ -34,7 +30,7 @@ resource "google_compute_region_network_endpoint_group" "serverless_neg" {
 
 # 3. Global Backend Service with Identity-Aware Proxy (IAP) enabled
 resource "google_compute_backend_service" "portal_backend" {
-  count                 = var.enable_lb ? 1 : 0
+  count                 = local.is_external_lb ? 1 : 0
   project               = var.project_id
   name                  = "antigravity-portal-backend"
   load_balancing_scheme = "EXTERNAL_MANAGED"
@@ -58,7 +54,7 @@ resource "google_compute_backend_service" "portal_backend" {
 
 # 4. IAP Web Backend Service IAM Members (roles/iap.httpsResourceAccessor)
 resource "google_iap_web_backend_service_iam_member" "iap_members" {
-  for_each = var.enable_lb ? toset(var.iap_allowed_members) : toset([])
+  for_each = local.is_external_lb ? toset(var.iap_allowed_members) : toset([])
 
   project             = var.project_id
   web_backend_service = google_compute_backend_service.portal_backend[0].name
@@ -68,7 +64,7 @@ resource "google_iap_web_backend_service_iam_member" "iap_members" {
 
 # 5. Google-Managed SSL Certificate for sslip.io or custom domain
 resource "google_compute_managed_ssl_certificate" "lb_cert" {
-  count    = var.enable_lb ? 1 : 0
+  count    = local.is_external_lb ? 1 : 0
   project  = var.project_id
   provider = google-beta
   name     = "antigravity-portal-cert-${substr(sha1(local.lb_hostname), 0, 8)}"
@@ -84,7 +80,7 @@ resource "google_compute_managed_ssl_certificate" "lb_cert" {
 
 # 6. HTTPS URL Map routing all traffic to the backend service
 resource "google_compute_url_map" "https_url_map" {
-  count           = var.enable_lb ? 1 : 0
+  count           = local.is_external_lb ? 1 : 0
   project         = var.project_id
   name            = "antigravity-portal-url-map"
   default_service = google_compute_backend_service.portal_backend[0].id
@@ -92,7 +88,7 @@ resource "google_compute_url_map" "https_url_map" {
 
 # 7. HTTP URL Map redirecting all HTTP requests to HTTPS
 resource "google_compute_url_map" "http_redirect_map" {
-  count   = var.enable_lb ? 1 : 0
+  count   = local.is_external_lb ? 1 : 0
   project = var.project_id
   name    = "antigravity-portal-http-redirect"
 
@@ -105,7 +101,7 @@ resource "google_compute_url_map" "http_redirect_map" {
 
 # 8. Target HTTPS Proxy
 resource "google_compute_target_https_proxy" "https_proxy" {
-  count            = var.enable_lb ? 1 : 0
+  count            = local.is_external_lb ? 1 : 0
   project          = var.project_id
   name             = "antigravity-portal-https-proxy"
   url_map          = google_compute_url_map.https_url_map[0].id
@@ -114,7 +110,7 @@ resource "google_compute_target_https_proxy" "https_proxy" {
 
 # 9. Target HTTP Proxy
 resource "google_compute_target_http_proxy" "http_proxy" {
-  count   = var.enable_lb ? 1 : 0
+  count   = local.is_external_lb ? 1 : 0
   project = var.project_id
   name    = "antigravity-portal-http-proxy"
   url_map = google_compute_url_map.http_redirect_map[0].id
@@ -122,22 +118,22 @@ resource "google_compute_target_http_proxy" "http_proxy" {
 
 # 10. Global HTTPS Forwarding Rule (Port 443)
 resource "google_compute_global_forwarding_rule" "https_forwarding_rule" {
-  count                 = var.enable_lb ? 1 : 0
+  count                 = local.is_external_lb ? 1 : 0
   project               = var.project_id
   name                  = "antigravity-portal-https-fr"
   load_balancing_scheme = "EXTERNAL_MANAGED"
   target                = google_compute_target_https_proxy.https_proxy[0].id
   port_range            = "443"
-  ip_address            = google_compute_global_address.lb_ip.address
+  ip_address            = google_compute_global_address.lb_ip[0].address
 }
 
 # 11. Global HTTP Forwarding Rule (Port 80 -> HTTPS redirect)
 resource "google_compute_global_forwarding_rule" "http_forwarding_rule" {
-  count                 = var.enable_lb ? 1 : 0
+  count                 = local.is_external_lb ? 1 : 0
   project               = var.project_id
   name                  = "antigravity-portal-http-fr"
   load_balancing_scheme = "EXTERNAL_MANAGED"
   target                = google_compute_target_http_proxy.http_proxy[0].id
   port_range            = "80"
-  ip_address            = google_compute_global_address.lb_ip.address
+  ip_address            = google_compute_global_address.lb_ip[0].address
 }

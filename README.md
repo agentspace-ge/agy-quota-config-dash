@@ -172,15 +172,19 @@ antigravity-quota-portal/
 ├── README.md
 ├── terraform/                   # Terraform IaC Module
 │   ├── main.tf                  # Providers & APIs
+│   ├── locals.tf                # Ingress & Argolis identity logic
 │   ├── bigquery.tf              # Dataset & Cloud Logging Sink
 │   ├── firestore.tf             # Firestore Native Database
 │   ├── iam.tf                   # Service Account & Least-Privilege IAM
+│   ├── cloud_build.tf           # Serverless Cloud Build container orchestration
 │   ├── cloud_run.tf             # Artifact Registry & Cloud Run v2 Service
+│   ├── internal_lb.tf           # Regional Internal Application Load Balancer
 │   ├── lb.tf                    # External HTTPS Load Balancer & IAP
-│   ├── variables.tf             # Inputs
-│   ├── outputs.tf               # Resource endpoints
+│   ├── variables.tf             # Inputs & access_mode options
+│   ├── outputs.tf               # Resource endpoints & access commands
 │   └── terraform.tfvars.example # Example configuration
 ├── scripts/
+│   ├── argolis_access.sh        # IAM authenticated proxy bridge & CLI helper
 │   ├── run_local_demo.py        # Local sandbox runner (seeds 3 demo users)
 │   ├── seed_demo_data.py        # REST API demo user seeder script
 │   ├── capture_screenshot.py    # Headless Chrome dashboard screenshot capture
@@ -261,30 +265,107 @@ uv run scripts/capture_screenshot.py
 
 ## Container Build & GCP Deployment
 
-### Step 1: Provision Artifact Registry with Terraform
-Target the repository resource first to enable required Google Cloud APIs and provision the Docker repository in Artifact Registry:
+The deployment pipeline is fully orchestrated by Terraform using **Google Cloud Build**, requiring **zero local Docker or Podman installation**.
+
+### Step 1: Configure Environment Variables
+Configure your GCP project, region, and Argolis settings in `terraform/terraform.tfvars`:
 ```bash
 cd terraform
 cp terraform.tfvars.example terraform.tfvars
 # Edit terraform.tfvars with your GCP project ID, region, and group emails
+```
 
+### Step 2: Deploy Infrastructure
+Run standard Terraform initialization and apply. Terraform automatically enables APIs, provisions Artifact Registry, triggers a Google Cloud Build to compile and push the container image to Artifact Registry, and deploys the Cloud Run v2 service:
+```bash
 terraform init
-terraform apply -target=google_artifact_registry_repository.docker_repo
-```
-
-### Step 2: Build and Push Container with Podman
-With the repository live, build the container image and push it to Artifact Registry:
-```bash
-cd ..
-./scripts/build_and_push.sh <YOUR_PROJECT_ID> us-central1 latest
-```
-
-### Step 3: Deploy Full Infrastructure
-Provision Cloud Run v2, Cloud Firestore Native, BigQuery dataset and sink, External Application Load Balancer with `sslip.io` SSL certificate, and Identity-Aware Proxy (IAP):
-```bash
-cd terraform
 terraform apply
 ```
+
+No local container runtime is needed. Cloud Build automatically handles multi-stage container compilation and pushes the image directly to `${REGION}-docker.pkg.dev/${PROJECT_ID}/antigravity-portal/app:latest`.
+
+---
+
+## Google Cloud Argolis & Secure Private Deployments
+
+Google Cloud Argolis demo environments enforce strict organization policies (such as `constraints/run.allowedIngress` and `constraints/iam.allowedPolicyMemberDomains`) that prevent unauthenticated public internet exposure. The Terraform module supports zero-public-exposure deployments tailored for Argolis and enterprise zero-trust requirements.
+
+### Access Modes & Ingress Governance
+
+| Access Mode | Ingress Policy | Authentication | Recommended For | Network Path |
+| :--- | :---: | :---: | :--- | :--- |
+| **`proxy`** *(Default)* | `internal` (`INGRESS_TRAFFIC_INTERNAL_ONLY`) | Strict IAM (`roles/run.invoker`) | Argolis demo environments, Cloud Shell, and local operator access | Cloud Run Private Ingress $\rightarrow$ Authenticated Proxy Bridge (`localhost:8080`) |
+| **`internal_lb`** | `internal-and-cloud-load-balancing` | VPC Subnet / IAM | Private VPC access from Compute Engine VMs or Cloud Interconnect | Regional Internal ALB $\rightarrow$ VPC Serverless NEG $\rightarrow$ Private Cloud Run |
+| **`external_lb`** | `internal-and-cloud-load-balancing` | Google Identity-Aware Proxy (IAP) | Production enterprise with public DNS and browser-based SSO | External HTTPS ALB $\rightarrow$ IAP OAuth $\rightarrow$ Serverless NEG $\rightarrow$ Cloud Run |
+
+### Configuration for Argolis (`terraform.tfvars`)
+
+```hcl
+# Set access mode to proxy (strictly private, no public ingress)
+access_mode = "proxy"
+
+# Argolis tenant identity binding (automatically binds domain:gcp.altostrat.com to roles/run.invoker)
+argolis_tenant_domain = "gcp.altostrat.com"
+
+# Optional additional specific invokers
+argolis_allowed_invokers = [
+  "user:admin@gcp.altostrat.com",
+]
+
+# Cloud Identity groups for Antigravity access state machine
+enabled_group_email  = "antigravity-enabled@gcp.altostrat.com"
+disabled_group_email = "antigravity-disabled@gcp.altostrat.com"
+```
+
+> [!IMPORTANT]
+> **Strict `--no-allow-unauthenticated` Enforcement**: In both `proxy` and `internal_lb` modes, unauthenticated public access (`allUsers`) is completely forbidden. Only identities with explicit `roles/run.invoker` bindings can reach the service.
+
+### Accessing the Private Portal via Helper Script
+
+The `./scripts/argolis_access.sh` utility automates secure connection bridging and identity token management for both local workstations and Google Cloud Shell.
+
+#### 1. Start the Authenticated Proxy Bridge
+Starts `gcloud run services proxy` on port 8080:
+```bash
+./scripts/argolis_access.sh proxy
+```
+- **In Google Cloud Shell**: Click the **Web Preview** icon in the top-right corner and select **Preview on port 8080**.
+- **On Local Workstation**: Open [http://localhost:8080](http://localhost:8080) directly in your browser.
+
+#### 2. Programmatic & cURL Testing with Identity Tokens
+Generate an identity token on-the-fly and test private API endpoints:
+```bash
+# Print identity token
+./scripts/argolis_access.sh token
+
+# Perform authenticated cURL request directly to Cloud Run
+./scripts/argolis_access.sh curl /api/users
+./scripts/argolis_access.sh curl /api/config
+```
+
+#### 3. Audit Ingress & Security Posture
+Inspect the deployed Cloud Run service to verify that ingress is locked down and unauthenticated access is blocked:
+```bash
+./scripts/argolis_access.sh status
+```
+
+### Regional Internal Application Load Balancer (`internal_lb`)
+
+For architectures requiring access from private VPC networks or hybrid interconnects without developer workstations using `gcloud`:
+1. In `terraform/terraform.tfvars`, set `access_mode = "internal_lb"`.
+2. Configure your VPC network and subnetwork:
+   ```hcl
+   access_mode              = "internal_lb"
+   vpc_network              = "default"
+   vpc_subnet               = "default"
+   create_proxy_only_subnet = false # Set true if region lacks a REGIONAL_MANAGED_PROXY subnet
+   ```
+3. Run `terraform apply`. Terraform will provision:
+   - Serverless NEG pointing to Cloud Run
+   - Regional Backend Service (`load_balancing_scheme = "INTERNAL_MANAGED"`)
+   - Regional URL Map & Target HTTP Proxy
+   - Regional Internal Forwarding Rule with a private VPC IP address (accessible only within the VPC)
+
 
 ---
 
