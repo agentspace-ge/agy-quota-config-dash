@@ -173,6 +173,7 @@ antigravity-quota-portal/
 ├── terraform/                   # Terraform IaC Module
 │   ├── main.tf                  # Providers & APIs
 │   ├── locals.tf                # Ingress & Argolis identity logic
+│   ├── cloud_identity.tf        # Cloud Identity Groups & Dual-Group Governance Automation
 │   ├── bigquery.tf              # Dataset & Cloud Logging Sink
 │   ├── firestore.tf             # Firestore Native Database
 │   ├── iam.tf                   # Service Account & Least-Privilege IAM
@@ -282,7 +283,30 @@ terraform init
 terraform apply
 ```
 
-No local container runtime is needed. Cloud Build automatically handles multi-stage container compilation and pushes the image directly to `${REGION}-docker.pkg.dev/${PROJECT_ID}/antigravity-portal/app:latest`.
+No local container runtime is needed. Cloud Build automatically handles multi-stage container compilation and pushes the image directly to `${REGION}-docker.pkg.dev/${PROJECT_ID}/antigravity-portal/antigravity-quota-portal:latest`.
+
+---
+
+## Cloud Identity Groups & Dual-Group Governance Automation
+
+Terraform automates the end-to-end lifecycle of the two Google Cloud Identity groups that govern Antigravity seat allocation:
+- **`antigravity-enabled@<domain>`**: Developers with active weekly quota. Members automatically receive `roles/businessaicode.user` on the Google Cloud project to use Google Antigravity.
+- **`antigravity-disabled@<domain>`**: Throttled developers who have exceeded their quota and overage buffer. The IAM role is revoked until the next weekly boundary reset (or manual admin quota replenishment).
+
+### Automated Provisioning in Terraform
+When `manage_cloud_identity_groups = true` and `customer_id` is supplied:
+1. `google_cloud_identity_group.enabled_group`: Provisions the enabled group under `customers/${customer_id}`.
+2. `google_cloud_identity_group.disabled_group`: Provisions the throttled group under `customers/${customer_id}`.
+3. `google_cloud_identity_group_membership.portal_sa_enabled_membership`: Adds the Cloud Run Service Account as an **OWNER** of the enabled group so it can add and remove developers programmatically via the Cloud Identity API.
+4. `google_cloud_identity_group_membership.portal_sa_disabled_membership`: Adds the Cloud Run Service Account as an **OWNER** of the disabled group.
+5. `google_project_iam_member.enabled_group_businessaicode_user`: Binds `roles/businessaicode.user` to `group:${var.enabled_group_email}` on the GCP project.
+
+To discover your Cloud Identity Customer ID:
+```bash
+gcloud organizations list
+# or
+gcloud identity groups search --labels="cloudidentity.googleapis.com/groups.discussion_forum"
+```
 
 ---
 
@@ -312,9 +336,11 @@ argolis_allowed_invokers = [
   "user:admin@gcp.altostrat.com",
 ]
 
-# Cloud Identity groups for Antigravity access state machine
-enabled_group_email  = "antigravity-enabled@gcp.altostrat.com"
-disabled_group_email = "antigravity-disabled@gcp.altostrat.com"
+# Automated Cloud Identity Groups Provisioning
+customer_id                  = "C01234567" # Cloud Identity Customer ID (run: gcloud organizations list)
+manage_cloud_identity_groups = true
+enabled_group_email          = "antigravity-enabled@gcp.altostrat.com"
+disabled_group_email         = "antigravity-disabled@gcp.altostrat.com"
 ```
 
 > [!IMPORTANT]

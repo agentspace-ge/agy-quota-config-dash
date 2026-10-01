@@ -29,5 +29,5 @@ locals {
   )
 
   # Fully qualified Docker container image URI in Artifact Registry
-  container_image = "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.docker_repo.repository_id}/app:${var.image_tag}"
+  container_image = "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.docker_repo.repository_id}/antigravity-quota-portal:${var.image_tag}"
 }

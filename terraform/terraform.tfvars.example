@@ -12,6 +12,8 @@ app_timezone          = "America/Los_Angeles"
 default_quota_usd     = 10.00
 default_overage_usd   = 2.00
 image_tag             = "latest"
+customer_id           = "C01234567" # Cloud Identity Customer ID (run: gcloud organizations list)
+manage_cloud_identity_groups = true
 
 # ------------------------------------------------------------------------------
 # Access Mode & Argolis Governance

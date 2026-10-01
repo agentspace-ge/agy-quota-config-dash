@@ -15,14 +15,50 @@ variable "bigquery_dataset_name" {
   default     = "antigravity_inference_logs"
 }
 
+variable "customer_id" {
+  type        = string
+  description = "The Google Workspace or Cloud Identity Customer ID (e.g. C04hbinmc) required to manage groups"
+  default     = null
+}
+
+variable "manage_cloud_identity_groups" {
+  type        = bool
+  description = "Whether Terraform should manage the Cloud Identity groups, memberships, and project IAM role"
+  default     = true
+}
+
 variable "enabled_group_email" {
   type        = string
   description = "Cloud Identity group email for active developers with roles/businessaicode.user"
 }
 
+variable "enabled_group_display_name" {
+  type        = string
+  description = "Display name for the Antigravity Enabled group"
+  default     = "Antigravity Enabled Developers"
+}
+
+variable "enabled_group_description" {
+  type        = string
+  description = "Description for the Antigravity Enabled group"
+  default     = "Developers with active Antigravity quota"
+}
+
 variable "disabled_group_email" {
   type        = string
   description = "Cloud Identity group email for throttled/locked developers"
+}
+
+variable "disabled_group_display_name" {
+  type        = string
+  description = "Display name for the Antigravity Throttled group"
+  default     = "Antigravity Throttled Developers"
+}
+
+variable "disabled_group_description" {
+  type        = string
+  description = "Description for the Antigravity Throttled group"
+  default     = "Developers temporarily throttled due to quota limits"
 }
 
 variable "app_timezone" {

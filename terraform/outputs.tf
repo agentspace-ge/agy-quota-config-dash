@@ -72,3 +72,13 @@ output "portal_url" {
     google_cloud_run_v2_service.portal_service.uri
   )
 }
+
+output "cloud_identity_enabled_group_name" {
+  description = "Resource name of the Cloud Identity enabled developers group"
+  value       = try(google_cloud_identity_group.enabled_group[0].name, null)
+}
+
+output "cloud_identity_disabled_group_name" {
+  description = "Resource name of the Cloud Identity disabled developers group"
+  value       = try(google_cloud_identity_group.disabled_group[0].name, null)
+}

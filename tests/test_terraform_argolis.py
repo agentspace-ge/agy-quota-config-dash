@@ -14,6 +14,7 @@ def test_terraform_files_exist():
     required_files = [
         "main.tf",
         "locals.tf",
+        "cloud_identity.tf",
         "cloud_run.tf",
         "internal_lb.tf",
         "lb.tf",
@@ -86,3 +87,20 @@ def test_argolis_access_script():
     assert "token" in result.stdout
     assert "curl" in result.stdout
     assert "status" in result.stdout
+
+
+def test_cloud_identity_terraform():
+    """Verify cloud_identity.tf provisions groups, SA ownership, and IAM role bindings."""
+    ci_content = (TF_DIR / "cloud_identity.tf").read_text()
+    assert 'resource "google_cloud_identity_group" "enabled_group"' in ci_content
+    assert 'resource "google_cloud_identity_group" "disabled_group"' in ci_content
+    assert 'resource "google_cloud_identity_group_membership" "portal_sa_enabled_membership"' in ci_content
+    assert 'resource "google_cloud_identity_group_membership" "portal_sa_disabled_membership"' in ci_content
+    assert 'resource "google_project_iam_member" "enabled_group_businessaicode_user"' in ci_content
+    assert '"roles/businessaicode.user"' in ci_content
+    assert 'name = "OWNER"' in ci_content
+
+    # Verify variables
+    variables_content = (TF_DIR / "variables.tf").read_text()
+    assert 'variable "customer_id"' in variables_content
+    assert 'variable "manage_cloud_identity_groups"' in variables_content
