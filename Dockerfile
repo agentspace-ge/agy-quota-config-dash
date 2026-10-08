@@ -5,8 +5,7 @@ WORKDIR /app/frontend
 COPY frontend/package*.json ./
 RUN npm ci --prefer-offline || npm install
 COPY frontend/ ./
-RUN npm run build || true
-RUN mkdir -p /app/static && if [ -d dist ]; then cp -r dist/* /app/static/; fi
+RUN npm run build
 
 # Stage 2: Production Python Cloud Run Container
 FROM python:3.11-slim
@@ -33,7 +32,7 @@ RUN uv pip compile pyproject.toml -o /tmp/requirements.txt && \
 COPY app/ ./app/
 
 # Copy compiled frontend from Stage 1
-COPY --from=frontend-builder /app/static/ ./app/static/
+COPY --from=frontend-builder /app/app/static/ ./app/static/
 
 # Cloud Run defaults
 ENV PORT=8080
