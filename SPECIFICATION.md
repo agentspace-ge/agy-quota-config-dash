@@ -23,12 +23,18 @@ flowchart TD
     subgraph Antigravity ["Antigravity Ingestion & Audit Stream"]
         UserReq["Developer IDE Requests"] --> BAIC["businessaicode.googleapis.com"]
         BAIC -->|"Audit Logs"| LR["Cloud Logging Log Router Sink"]
-        LR -->|"Partitioned Export"| BQ[("BigQuery Dataset\n(businessaicode_inference_response)")]
+        LR -->|"Daily Sharded Export"| BQ_SHARDS[("BigQuery Date Shards\n(inference_response_YYYYMMDD)")]
+        BQ_SHARDS -->|"Terraform Unified View"| BQ[("BigQuery View\n(businessaicode_inference_response)")]
+    end
+
+    subgraph AccessLayer ["Admin Access & Network Ingress"]
+        AdminBrowser["Admin Browser\n(http://localhost:8080)"] <-->|"gcloud auth identity"| ProxyBridge["Local IAM Proxy Bridge\n(argolis_access.sh proxy)"]
+        ProxyBridge <-->|"Bearer Token (IAM Auth)"| WebApp
     end
 
     subgraph SingleContainer ["Single Always-On Cloud Run Instance (min=1, max=1)"]
         direction TB
-        AdminUser["Admin Browser"] <-->|"React UI & API"| WebApp["FastAPI / Express Web Server"]
+        WebApp["FastAPI / Express Web Server\n(Cloud Run in us-east5)"]
         EmbeddedCron["Internal Hourly Scheduler\n(APScheduler / asyncio loop)"] -->|"Hourly Trigger"| Evaluator["In-Memory Evaluator Worker"]
         WebApp -->|"Publish Button Click"| Evaluator
     end
@@ -36,6 +42,7 @@ flowchart TD
     subgraph ExternalBackends ["GCP & Identity Services"]
         Evaluator -->|"Extract Weekly Tokens"| BQ
         Evaluator <-->|"Read/Write Settings & Spend"| FS[("Google Cloud Firestore")]
+        Evaluator -->|"Dual-Write Audit Logs"| CL_AUDIT[("Cloud Logging\nantigravity-quota-audit")]
         Evaluator -->|"Reconcile Memberships"| CI_API["Cloud Identity Directory API"]
         CI_API --> G_EN["antigravity-enabled@\n(Bound to roles/businessaicode.user)"]
         CI_API --> G_DIS["antigravity-disabled@\n(Throttled / Paused Users)"]
@@ -164,6 +171,21 @@ stateDiagram-v2
 | **`MANUALLY_DISABLED`** | `antigravity-disabled@` | Manual lock. Evaluator never modifies group. | **Protected**: Ignored by Monday reset. User remains in `antigravity-disabled@`. |
 | **`is_exempt: true`** | `antigravity-enabled@` | Quota checks bypassed. Usage is tracked and displayed, but user is never throttled. | Reset weekly counters. User remains in `antigravity-enabled@`. |
 
+### 4.4 Automated Cloud Identity Group Provisioning (Terraform)
+
+To eliminate manual directory setup, group creation and permission delegation are fully automated via Terraform ([`terraform/cloud_identity.tf`](file:///Users/ayratk/development/agy-quota-config-dash/terraform/cloud_identity.tf)):
+
+1. **Group Provisioning (`google_cloud_identity_group`)**:
+   - `antigravity-enabled@<domain>`: Tagged with `cloudidentity.googleapis.com/groups.discussion_forum`.
+   - `antigravity-disabled@<domain>`: Tagged with `cloudidentity.googleapis.com/groups.discussion_forum`.
+   - Configurable via `create_cloud_identity_groups = true/false` flag to support pre-existing groups.
+2. **Access Entitlement (`google_project_iam_member`)**:
+   - Automatically binds `roles/businessaicode.user` directly to `group:antigravity-enabled@<domain>`.
+   - The disabled group receives no project IAM roles.
+3. **Least-Privilege Group Delegation (`google_cloud_identity_group_membership`)**:
+   - The Cloud Run Portal Service Account (`antigravity-quota-portal@<project>.iam.gserviceaccount.com`) is assigned roles `["MEMBER", "OWNER"]` scoped strictly inside both groups.
+   - This eliminates the need for project-level IAM Admin privileges or organization-wide Super Admin credentials; the service account can only modify memberships within these two designated groups.
+
 ---
 
 ## 5. Token Cost Modeling Engine & "Hinge Points"
@@ -201,6 +223,16 @@ stateDiagram-v2
       "cached_price_per_million": 0.0375,
       "estimated_input_ratio": 0.75,
       "estimated_output_ratio": 0.20,
+      "estimated_cached_ratio": 0.05
+    },
+    "gemini-3.8-flash": {
+      "display_name": "Gemini 3.8 Flash (Antigravity Default)",
+      "log_pattern": "%3.8%flash%",
+      "input_price_per_million": 0.075,
+      "output_price_per_million": 0.30,
+      "cached_price_per_million": 0.01875,
+      "estimated_input_ratio": 0.80,
+      "estimated_output_ratio": 0.15,
       "estimated_cached_ratio": 0.05
     },
     "gemini-3.6-flash": {
@@ -246,7 +278,51 @@ stateDiagram-v2
 * **Weekly Window**: Begins strictly at **Monday 00:00:00** and ends at **Sunday 23:59:59** in the configured application timezone.
 * All developers across all global regions are measured against this unified weekly budget boundary.
 
-### 6.2 BigQuery Parametrized Extraction Query
+### 6.2 Date-Sharded Log Export & Consolidated BigQuery View
+
+The Cloud Logging sink writes inference logs to BigQuery in date-sharded tables (`businessaicode_googleapis_com_inference_response_YYYYMMDD`). To enable uninterrupted queries across week boundaries without requiring table-partitioning restructuring:
+1. **Terraform-Managed View**: A BigQuery view named `businessaicode_googleapis_com_inference_response` is provisioned across all table shards:
+   ```sql
+   CREATE OR REPLACE VIEW `{{PROJECT_ID}}.{{DATASET_NAME}}.businessaicode_googleapis_com_inference_response` AS
+   SELECT * FROM `{{PROJECT_ID}}.{{DATASET_NAME}}.businessaicode_googleapis_com_inference_response_*`;
+   ```
+2. **Wildcard Fallback**: Application queries in [`app/bq/bq_client.py`](file:///Users/ayratk/development/agy-quota-config-dash/app/bq/bq_client.py) target `{self.project_id}.{self.dataset_name}.businessaicode_googleapis_com_inference_response*`, supporting both the unified view and raw wildcard table matches.
+
+### 6.3 Structured Telemetry Payload (`metadata`)
+
+Every log entry under `businessaicode.googleapis.com/inference_response` contains a structured JSON payload:
+
+```json
+{
+  "timestamp": "2026-10-08 18:09:45.800408 UTC",
+  "labels": {
+    "user_id": "user:developer@company.com",
+    "model": "gemini-3.8-flash",
+    "request_id": "893c834a-9eef-4f6c-8472-a8c7df3158c8",
+    "trajectory_id": "400ad99f-7f72-4d5f-9f79-6ea43a18e03e"
+  },
+  "jsonpayload_v1_inferenceresponselog": {
+    "metadata": {
+      "totaltokencount": 107315,
+      "prompttokencount": 106636,
+      "candidatestokencount": 193,
+      "thoughtstokencount": 486,
+      "cachedcontenttokencount": 101525,
+      "quotatype": "REGULAR_QUOTA"
+    }
+  }
+}
+```
+
+Key telemetry fields parsed by the evaluator:
+* **`totaltokencount`**: Full token volume per interaction.
+* **`prompttokencount`**: Prompt/input tokens.
+* **`candidatestokencount`**: Completion/output response tokens.
+* **`thoughtstokencount`**: Internal chain-of-thought/reasoning tokens.
+* **`cachedcontenttokencount`**: Context cache savings.
+* **`quotatype`**: Quota type flag (`REGULAR_QUOTA`).
+
+### 6.4 BigQuery Parametrized Extraction Query
 
 ```sql
 -- Parametrized BigQuery Usage Aggregation
@@ -255,14 +331,14 @@ WITH raw_events AS (
   SELECT
     timestamp,
     REPLACE(labels.user_id, 'user:', '') AS user_email,
-    COALESCE(labels.model, 'gemini-3.6-flash') AS model_name,
+    COALESCE(labels.model, 'gemini-3.8-flash') AS model_name,
     COALESCE(
       SAFE_CAST(jsonpayload_v1_inferenceresponselog.metadata.totalTokenCount AS INT64),
       SAFE_CAST(jsonpayload_v1_inferenceresponselog.metadata.totaltokencount AS INT64),
       0
     ) AS total_tokens
   FROM
-    `{{PROJECT_ID}}.{{DATASET_NAME}}.businessaicode_googleapis_com_inference_response`
+    `{{PROJECT_ID}}.{{DATASET_NAME}}.businessaicode_googleapis_com_inference_response*`
   WHERE
     timestamp >= @start_timestamp_utc
     AND timestamp <= @end_timestamp_utc
@@ -419,7 +495,11 @@ Clicking any user row opens a slide-out drawer containing:
     *   Overage Buffer Input (\$XX.XX).
     *   `Exempt from Quota Controls` Checkbox.
     *   `Manually Lock / Disable User` Toggle.
-    *   `[ Save Draft ]` Button.
+### 8.4 Developer Onboarding ("Add Developer" Dialog)
+In addition to synthetic discovery from BigQuery telemetry, administrators can manually pre-provision developers:
+* **Interactive Modal**: Admin enters developer email, selects weekly credit target (default or custom), sets overage buffer, and sets exemption status.
+* **REST API**: Invokes `POST /api/users` to initialize the developer in Firestore with status `ACTIVE`.
+* **Instant Group Assignment**: Upon "Publish & Sync", the evaluator verifies and adds the developer to `antigravity-enabled@`.
 
 ---
 
@@ -427,16 +507,62 @@ Clicking any user row opens a slide-out drawer containing:
 
 | Identity / Service Account | Granted IAM Roles | Scoped Resource | Purpose |
 | :--- | :--- | :--- | :--- |
-| **Cloud Run Unified SA** (`antigravity-quota-portal@...`) | `roles/bigquery.dataViewer`<br>`roles/bigquery.jobUser` | BigQuery Dataset & Project | Reads inference audit logs. |
-| **Cloud Run Unified SA** (`antigravity-quota-portal@...`) | `roles/datastore.user` | Cloud Firestore | Reads/writes app configuration, user limits, and spend cache. |
-| **Cloud Run Unified SA** (`antigravity-quota-portal@...`) | Cloud Identity **Group Manager** | `antigravity-enabled@`<br>`antigravity-disabled@` | Swaps group memberships via Google Cloud Identity API. **Zero GCP project IAM admin rights.** |
+| **Cloud Run Portal SA** (`antigravity-quota-portal@...`) | `roles/bigquery.dataViewer`<br>`roles/bigquery.jobUser` | BigQuery Dataset & Project | Queries weekly developer token logs. |
+| **Cloud Run Portal SA** (`antigravity-quota-portal@...`) | `roles/datastore.user` | Cloud Firestore | Manages configurations, quotas, user states, and audit trails. |
+| **Cloud Run Portal SA** (`antigravity-quota-portal@...`) | `roles/logging.logWriter` | GCP Project | Emits structured compliance audit logs to Cloud Logging (`antigravity-quota-audit`). |
+| **Cloud Run Portal SA** (`antigravity-quota-portal@...`) | `roles/serviceusage.serviceUsageConsumer` | GCP Project | Consumes BigQuery and logging APIs without project admin rights. |
+| **Cloud Run Portal SA** (`antigravity-quota-portal@...`) | Cloud Identity **Owner & Member** | `antigravity-enabled@`<br>`antigravity-disabled@` | Reconciles developer memberships. **Zero GCP project IAM admin rights.** |
+| **Admin Users / Domains** (e.g. `domain:gcp.altostrat.com`) | `roles/run.invoker` | Cloud Run Service | Authorized invocation of the web dashboard and REST APIs under IAM authentication. |
+| **Cloud Logging Sink Writer** (`service-PROJECT_NUM@gcp-sa-logging...`) | `roles/bigquery.dataEditor` | `antigravity_inference_logs` Dataset | Ingests `businessaicode.googleapis.com` logs from Cloud Logging into BigQuery. |
 
 ---
 
-## 10. Summary & Sign-off
+## 10. Enterprise Ingress & Secure Access (Argolis Environments)
 
-The specification now fully formalizes:
-1. **The Credit vs. Overage Model**: User quotas are treated as granted credits. Overage accumulates when gross usage exceeds the quota ($C_{\text{gross}} - Q$), tracking internal developer overage against policy targets rather than external pooled billing.
-2. **Unified Estimation Disclaimer**: Prominently presented at the application level rather than fragmenting every metric on the page.
-3. **Dual-Group Cloud Identity Model**: Complete state transitions across `ACTIVE`, `AUTO_DISABLED`, `MANUALLY_DISABLED`, and `is_exempt`.
-4. **Save & Publish Workflow**: Full admin control over draft changes with optional instant sync or hourly scheduled reconciliation.
+In high-governance and Argolis sandbox environments, Google Cloud organization policies strictly forbid public unauthenticated Cloud Run endpoints (`allUsers`). The system accommodates this via two complementary access patterns:
+
+```mermaid
+flowchart LR
+    subgraph LocalAdmin ["Admin Workstation"]
+        Browser["Admin Web Browser"] <-->|"http://localhost:8080"| Proxy["argolis_access.sh proxy\n(Local IAM Bridge)"]
+    end
+
+    subgraph GCP ["Google Cloud Platform"]
+        Proxy <-->|"HTTPS with Bearer Token\n(gcloud auth identity)"| CR["Cloud Run Service\n(Ingress: Internal/Restricted)"]
+        CR <--> BQ[("BigQuery")]
+        CR <--> FS[("Firestore")]
+    end
+```
+
+1. **Local Authenticated IAM Proxy Bridge (`scripts/argolis_access.sh`)**:
+   - Runs a lightweight background proxy on the administrator's workstation (`http://localhost:8080`).
+   - Automatically refreshes and attaches the active `gcloud` identity token to all outbound requests:
+     ```bash
+     ./scripts/argolis_access.sh proxy --port 8080 --region us-east5 --project ge-ent-app-demo
+     ```
+   - Allows instant browser testing without exposing the Cloud Run service to the public Internet or bypassing Org Policies.
+2. **Internal Load Balancer (ILB) & Cloud Armor (Production Mode)**:
+   - Terraform codifies optional Serverless Network Endpoint Group (NEG), internal forwarding rules, Cloud Armor security policies, and Identity-Aware Proxy (IAP) integration.
+
+---
+
+## 11. Dual-Write Audit Trail & Observability
+
+To satisfy enterprise FinOps compliance and SIEM ingestion, all state changes are recorded using a dual-write architecture:
+
+1. **Firestore Audit Trail**: Persisted to the `audit_events` collection for rendering in the administrative web UI with rich filtering.
+2. **GCP Cloud Logging Emitter (`antigravity-quota-audit`)**:
+   - Implemented via `CloudLoggingAuditEmitter` in [`app/core/logging_emitter.py`](file:///Users/ayratk/development/agy-quota-config-dash/app/core/logging_emitter.py).
+   - Writes structured JSON payloads containing actor identity, event type (`GROUP_SWAP`, `QUOTA_UPDATE`, `MANUAL_LOCK`, `EVALUATOR_RUN`), previous state, new state, and impact.
+   - Categorizes group swaps and overage throttling as `WARNING`/`NOTICE` severity.
+   - Built with non-blocking error isolation so audit export failures never disrupt user requests.
+
+---
+
+## 12. Summary & Operational Status
+
+The portal is actively running with:
+1. **Live Inference Log Ingestion**: Ingesting daily sharded telemetry from `businessaicode.googleapis.com` via a consolidated BigQuery view.
+2. **Dynamic Pricing Calibration**: Supporting current models including `gemini-3.8-flash`, `gemini-3.1-pro-preview`, and `gemini-3.5-flash-lite`.
+3. **Automated Directory Governance**: Cloud Identity groups (`antigravity-enabled@` / `antigravity-disabled@`) fully provisioned and managed via Terraform.
+4. **Argolis Compliance**: Zero unauthenticated exposure, IAM-authenticated invocation, and local proxy bridge for operational administration.

@@ -43,7 +43,7 @@ class BigQueryUsageClient:
               0
             ) AS total_tokens
           FROM
-            `{self.project_id}.{self.dataset_name}.businessaicode_googleapis_com_inference_response`
+            `{self.project_id}.{self.dataset_name}.businessaicode_googleapis_com_inference_response*`
           WHERE
             timestamp >= @start_timestamp_utc
             AND timestamp <= @end_timestamp_utc

@@ -54,6 +54,16 @@ DEFAULT_MODEL_PRICING: dict[str, ModelPricing] = {
         estimated_output_ratio=0.20,
         estimated_cached_ratio=0.05,
     ),
+    "gemini-3.8-flash": ModelPricing(
+        display_name="Gemini 3.8 Flash",
+        log_pattern="%3.8%flash%",
+        input_price_per_million=0.075,
+        output_price_per_million=0.30,
+        cached_price_per_million=0.01875,
+        estimated_input_ratio=0.80,
+        estimated_output_ratio=0.15,
+        estimated_cached_ratio=0.05,
+    ),
     "gemini-3.6-flash": ModelPricing(
         display_name="Gemini 3.6 / 3.7 Flash",
         log_pattern="%3.6%flash%",

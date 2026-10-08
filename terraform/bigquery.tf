@@ -26,3 +26,21 @@ resource "google_bigquery_dataset_iam_member" "sink_writer_permission" {
   role       = "roles/bigquery.dataEditor"
   member     = google_logging_project_sink.antigravity_sink.writer_identity
 }
+
+# Consolidated View across date-sharded inference response tables
+resource "google_bigquery_table" "inference_response_view" {
+  dataset_id          = google_bigquery_dataset.audit_dataset.dataset_id
+  table_id            = "businessaicode_googleapis_com_inference_response"
+  project             = var.project_id
+  description         = "Consolidated view across date-sharded businessaicode inference response tables"
+  deletion_protection = false
+
+  view {
+    query          = "SELECT * FROM `${var.project_id}.${google_bigquery_dataset.audit_dataset.dataset_id}.businessaicode_googleapis_com_inference_response_*`"
+    use_legacy_sql = false
+  }
+
+  depends_on = [google_bigquery_dataset.audit_dataset]
+}
+
+
