@@ -47,6 +47,11 @@ class FirestoreDatabase:
                     models[k] = ModelPricing(**v)
                 if not models:
                     models = DEFAULT_MODEL_PRICING
+                else:
+                    # Auto-merge any newly defined default models (e.g. gemini-3.8-flash)
+                    for def_k, def_v in DEFAULT_MODEL_PRICING.items():
+                        if def_k not in models:
+                            models[def_k] = def_v
                 data["models"] = models
                 return AppConfig(**data)
             else:
