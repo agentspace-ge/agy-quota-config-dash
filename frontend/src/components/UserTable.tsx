@@ -534,29 +534,53 @@ export const UserTable: React.FC<UserTableProps> = ({
                     {/* Balance / Overages */}
                     <TableCell align="right">
                       {isOver ? (
-                        <Typography
-                          variant="body2"
-                          sx={{
-                            fontFamily: 'monospace',
-                            fontWeight: 700,
-                            color: '#ef4444',
-                            fontSize: '0.85rem',
-                          }}
-                        >
-                          +${current.net_billable_cost_usd.toFixed(2)} over
-                        </Typography>
+                        <Box sx={{ display: 'inline-flex', alignItems: 'baseline', gap: 0.5 }}>
+                          <Typography
+                            variant="body2"
+                            sx={{
+                              fontFamily: 'monospace',
+                              fontWeight: 700,
+                              color: '#ef4444',
+                              fontSize: '0.85rem',
+                            }}
+                          >
+                            +${current.net_billable_cost_usd.toFixed(2)}
+                          </Typography>
+                          <Typography
+                            variant="caption"
+                            sx={{
+                              fontSize: '0.72rem',
+                              fontWeight: 600,
+                              color: '#ef4444',
+                            }}
+                          >
+                            over
+                          </Typography>
+                        </Box>
                       ) : (
-                        <Typography
-                          variant="body2"
-                          sx={{
-                            fontFamily: 'monospace',
-                            fontWeight: 600,
-                            color: '#10b981',
-                            fontSize: '0.85rem',
-                          }}
-                        >
-                          ${current.remaining_credit_usd.toFixed(2)} rem
-                        </Typography>
+                        <Box sx={{ display: 'inline-flex', alignItems: 'baseline', gap: 0.5 }}>
+                          <Typography
+                            variant="body2"
+                            sx={{
+                              fontFamily: 'monospace',
+                              fontWeight: 600,
+                              color: '#10b981',
+                              fontSize: '0.85rem',
+                            }}
+                          >
+                            ${current.remaining_credit_usd.toFixed(2)}
+                          </Typography>
+                          <Typography
+                            variant="caption"
+                            sx={{
+                              fontSize: '0.72rem',
+                              fontWeight: 500,
+                              color: isDark ? '#9ca3af' : '#64748b',
+                            }}
+                          >
+                            left
+                          </Typography>
+                        </Box>
                       )}
                     </TableCell>
 
