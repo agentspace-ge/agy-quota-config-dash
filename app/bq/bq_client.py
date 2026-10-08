@@ -25,12 +25,7 @@ class BigQueryUsageClient:
         self.dataset_name = dataset_name
         self.client = bigquery.Client(project=project_id)
 
-    def fetch_weekly_usage(
-        self,
-        start_utc: datetime,
-        end_utc: datetime,
-    ) -> list[UserUsageRecord]:
-        """Fetch aggregated token usage per user and model within the UTC time range."""
+    def _execute_usage_query(self, table_source: str, start_utc: datetime, end_utc: datetime) -> list[UserUsageRecord]:
         query = f"""
         WITH raw_events AS (
           SELECT
@@ -43,7 +38,7 @@ class BigQueryUsageClient:
               0
             ) AS total_tokens
           FROM
-            `{self.project_id}.{self.dataset_name}.businessaicode_googleapis_com_inference_response*`
+            `{table_source}`
           WHERE
             timestamp >= @start_timestamp_utc
             AND timestamp <= @end_timestamp_utc
@@ -71,22 +66,45 @@ class BigQueryUsageClient:
             ]
         )
 
-        try:
-            query_job = self.client.query(query, job_config=job_config)
-            results = query_job.result()
+        query_job = self.client.query(query, job_config=job_config)
+        results = query_job.result()
 
-            records: list[UserUsageRecord] = []
-            for row in results:
-                records.append(
-                    UserUsageRecord(
-                        user_email=row["user_email"],
-                        model_name=row["model_name"],
-                        request_count=row["request_count"],
-                        token_count=row["token_count"],
-                        last_active=row["last_active"],
-                    )
+        records: list[UserUsageRecord] = []
+        for row in results:
+            records.append(
+                UserUsageRecord(
+                    user_email=row["user_email"],
+                    model_name=row["model_name"],
+                    request_count=row["request_count"],
+                    token_count=row["token_count"],
+                    last_active=row["last_active"],
                 )
-            return records
-        except Exception as e:
-            logger.error(f"Error querying BigQuery usage: {e}", exc_info=True)
-            return []
+            )
+        return records
+
+    def fetch_weekly_usage(
+        self,
+        start_utc: datetime,
+        end_utc: datetime,
+    ) -> list[UserUsageRecord]:
+        """Fetch aggregated token usage per user and model within the UTC time range."""
+        # 1. Primary: query date-sharded tables directly (e.g. businessaicode_googleapis_com_inference_response_*)
+        sharded_source = f"{self.project_id}.{self.dataset_name}.businessaicode_googleapis_com_inference_response_*"
+        try:
+            return self._execute_usage_query(sharded_source, start_utc, end_utc)
+        except Exception as e_sharded:
+            logger.warning(
+                f"Querying sharded tables ({sharded_source}) encountered: {e_sharded}. "
+                "Attempting fallback to unified view/table."
+            )
+
+        # 2. Fallback: query unified view or single table without wildcard
+        unified_source = f"{self.project_id}.{self.dataset_name}.businessaicode_googleapis_com_inference_response"
+        try:
+            return self._execute_usage_query(unified_source, start_utc, end_utc)
+        except Exception as e_unified:
+            logger.error(
+                f"Both sharded and unified BigQuery usage queries failed: {e_unified}",
+                exc_info=True,
+            )
+            raise e_unified
