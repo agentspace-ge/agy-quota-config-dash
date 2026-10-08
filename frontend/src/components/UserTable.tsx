@@ -20,6 +20,7 @@ import {
   TextField,
   Tooltip,
   Typography,
+  useTheme,
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
@@ -28,7 +29,9 @@ import LockIcon from '@mui/icons-material/Lock';
 import VerifiedUserOutlinedIcon from '@mui/icons-material/VerifiedUserOutlined';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import PersonAddOutlinedIcon from '@mui/icons-material/PersonAddOutlined';
-import { User, UserStatus } from '../types';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import CheckIcon from '@mui/icons-material/Check';
+import { User } from '../types';
 
 interface UserTableProps {
   users: User[];
@@ -45,10 +48,14 @@ export const UserTable: React.FC<UserTableProps> = ({
   onToggleExempt,
   onOpenAddUser,
 }) => {
+  const theme = useTheme();
+  const isDark = theme.palette.mode === 'dark';
+
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState<string>('ALL');
   const [sortField, setSortField] = useState<'gross_spend' | 'tokens' | 'email' | 'utilization' | 'remaining_credit'>('gross_spend');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+  const [copiedEmail, setCopiedEmail] = useState<string | null>(null);
 
   // Menu action state
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
@@ -63,6 +70,13 @@ export const UserTable: React.FC<UserTableProps> = ({
   const handleCloseMenu = () => {
     setMenuAnchor(null);
     setActiveMenuUser(null);
+  };
+
+  const handleCopyEmail = (e: React.MouseEvent, email: string) => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(email);
+    setCopiedEmail(email);
+    setTimeout(() => setCopiedEmail(null), 2000);
   };
 
   const handleSort = (field: 'gross_spend' | 'tokens' | 'email' | 'utilization' | 'remaining_credit') => {
@@ -95,7 +109,14 @@ export const UserTable: React.FC<UserTableProps> = ({
         <Chip
           label="Exempt"
           size="small"
-          sx={{ backgroundColor: '#f3e8fd', color: '#7b1fa2', fontWeight: 600 }}
+          sx={{
+            backgroundColor: isDark ? 'rgba(99, 102, 241, 0.15)' : 'rgba(99, 102, 241, 0.1)',
+            color: isDark ? '#a5b4fc' : '#4f46e5',
+            border: `1px solid ${isDark ? 'rgba(99, 102, 241, 0.3)' : 'rgba(99, 102, 241, 0.25)'}`,
+            fontWeight: 600,
+            fontSize: '0.72rem',
+            height: 22,
+          }}
         />
       );
     }
@@ -104,8 +125,15 @@ export const UserTable: React.FC<UserTableProps> = ({
         <Chip
           label="Locked"
           size="small"
-          icon={<LockIcon sx={{ fontSize: '14px !important', color: '#5f6368 !important' }} />}
-          sx={{ backgroundColor: '#f1f3f4', color: '#5f6368', fontWeight: 600 }}
+          icon={<LockIcon sx={{ fontSize: '13px !important', color: 'inherit !important' }} />}
+          sx={{
+            backgroundColor: isDark ? 'rgba(156, 163, 175, 0.12)' : 'rgba(100, 116, 139, 0.1)',
+            color: isDark ? '#9ca3af' : '#475569',
+            border: `1px solid ${isDark ? 'rgba(156, 163, 175, 0.25)' : 'rgba(100, 116, 139, 0.25)'}`,
+            fontWeight: 600,
+            fontSize: '0.72rem',
+            height: 22,
+          }}
         />
       );
     }
@@ -114,7 +142,14 @@ export const UserTable: React.FC<UserTableProps> = ({
         <Chip
           label="Auto-Throttled"
           size="small"
-          sx={{ backgroundColor: '#fce8e6', color: '#d93025', fontWeight: 600 }}
+          sx={{
+            backgroundColor: isDark ? 'rgba(239, 68, 68, 0.15)' : 'rgba(239, 68, 68, 0.1)',
+            color: isDark ? '#f87171' : '#dc2626',
+            border: `1px solid ${isDark ? 'rgba(239, 68, 68, 0.3)' : 'rgba(239, 68, 68, 0.25)'}`,
+            fontWeight: 600,
+            fontSize: '0.72rem',
+            height: 22,
+          }}
         />
       );
     }
@@ -123,7 +158,14 @@ export const UserTable: React.FC<UserTableProps> = ({
         <Chip
           label="Warning (>80%)"
           size="small"
-          sx={{ backgroundColor: '#fef7e0', color: '#b06000', fontWeight: 600 }}
+          sx={{
+            backgroundColor: isDark ? 'rgba(245, 158, 11, 0.15)' : 'rgba(245, 158, 11, 0.1)',
+            color: isDark ? '#fbbf24' : '#d97706',
+            border: `1px solid ${isDark ? 'rgba(245, 158, 11, 0.3)' : 'rgba(245, 158, 11, 0.25)'}`,
+            fontWeight: 600,
+            fontSize: '0.72rem',
+            height: 22,
+          }}
         />
       );
     }
@@ -131,15 +173,26 @@ export const UserTable: React.FC<UserTableProps> = ({
       <Chip
         label="Active"
         size="small"
-        sx={{ backgroundColor: '#e6f4ea', color: '#188038', fontWeight: 600 }}
+        sx={{
+          backgroundColor: isDark ? 'rgba(16, 185, 129, 0.15)' : 'rgba(16, 185, 129, 0.1)',
+          color: isDark ? '#34d399' : '#059669',
+          border: `1px solid ${isDark ? 'rgba(16, 185, 129, 0.3)' : 'rgba(16, 185, 129, 0.25)'}`,
+          fontWeight: 600,
+          fontSize: '0.72rem',
+          height: 22,
+        }}
       />
     );
   };
 
-  const getUtilizationColor = (utilization: number) => {
-    if (utilization > 100) return '#d93025'; // Red
-    if (utilization >= 80) return '#f9ab00'; // Amber
-    return '#188038'; // Green
+  // Status counts for filter chips
+  const counts = {
+    ALL: users.length,
+    ACTIVE: users.filter((u) => u.status === 'ACTIVE' && !u.is_exempt && u.current_week.credit_utilization_percentage < 80).length,
+    WARNING: users.filter((u) => u.status === 'ACTIVE' && !u.is_exempt && u.current_week.credit_utilization_percentage >= 80).length,
+    THROTTLED: users.filter((u) => u.status === 'AUTO_DISABLED').length,
+    LOCKED: users.filter((u) => u.status === 'MANUALLY_DISABLED').length,
+    EXEMPT: users.filter((u) => u.is_exempt).length,
   };
 
   // Filter users
@@ -174,7 +227,15 @@ export const UserTable: React.FC<UserTableProps> = ({
   });
 
   return (
-    <Paper elevation={0} sx={{ border: '1px solid #dadce0', borderRadius: 2, overflow: 'hidden' }}>
+    <Paper
+      elevation={0}
+      sx={{
+        border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.08)' : '#e2e8f0'}`,
+        borderRadius: 3,
+        overflow: 'hidden',
+        backgroundColor: isDark ? '#111827' : '#ffffff',
+      }}
+    >
       {/* Search & Filter Header Bar */}
       <Box
         sx={{
@@ -184,48 +245,93 @@ export const UserTable: React.FC<UserTableProps> = ({
           gap: 2,
           alignItems: 'center',
           justifyContent: 'space-between',
-          borderBottom: '1px solid #dadce0',
-          backgroundColor: '#fafbfc',
+          borderBottom: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.06)' : '#f1f5f9'}`,
+          backgroundColor: isDark ? '#0b0f19' : '#fafafa',
         }}
       >
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flex: '1 1 300px', maxWidth: 450 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flex: '1 1 280px', maxWidth: 420 }}>
           <TextField
             size="small"
             fullWidth
-            placeholder="Search developer by email..."
+            placeholder="Search developers by email... (Press / to focus)"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             InputProps={{
               startAdornment: (
                 <InputAdornment position="start">
-                  <SearchIcon sx={{ color: '#5f6368', fontSize: 20 }} />
+                  <SearchIcon sx={{ color: isDark ? '#6b7280' : '#94a3b8', fontSize: 19 }} />
                 </InputAdornment>
               ),
+              sx: {
+                borderRadius: 2,
+                fontSize: '0.85rem',
+                backgroundColor: isDark ? '#111827' : '#ffffff',
+              },
             }}
           />
         </Box>
 
-        {/* Filter Pills */}
-        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
-          {['ALL', 'ACTIVE', 'WARNING', 'THROTTLED', 'LOCKED', 'EXEMPT'].map((st) => (
-            <Chip
-              key={st}
-              label={st === 'ALL' ? 'All Developers' : st.charAt(0) + st.slice(1).toLowerCase()}
-              clickable
-              color={filterStatus === st ? 'primary' : 'default'}
-              variant={filterStatus === st ? 'filled' : 'outlined'}
-              onClick={() => setFilterStatus(st)}
-              size="small"
-              sx={{ fontWeight: 500 }}
-            />
-          ))}
+        {/* Filter Pills with Live Counts */}
+        <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap', alignItems: 'center' }}>
+          {[
+            { id: 'ALL', label: 'All', count: counts.ALL },
+            { id: 'ACTIVE', label: 'Active', count: counts.ACTIVE },
+            { id: 'WARNING', label: 'Warning', count: counts.WARNING },
+            { id: 'THROTTLED', label: 'Throttled', count: counts.THROTTLED },
+            { id: 'LOCKED', label: 'Locked', count: counts.LOCKED },
+            { id: 'EXEMPT', label: 'Exempt', count: counts.EXEMPT },
+          ].map((item) => {
+            const isSelected = filterStatus === item.id;
+            return (
+              <Chip
+                key={item.id}
+                label={`${item.label} (${item.count})`}
+                clickable
+                onClick={() => setFilterStatus(item.id)}
+                size="small"
+                sx={{
+                  fontWeight: isSelected ? 600 : 500,
+                  fontSize: '0.75rem',
+                  backgroundColor: isSelected
+                    ? isDark
+                      ? '#6366f1'
+                      : '#4f46e5'
+                    : isDark
+                    ? 'rgba(255, 255, 255, 0.05)'
+                    : '#f1f5f9',
+                  color: isSelected ? '#ffffff' : isDark ? '#9ca3af' : '#475569',
+                  border: `1px solid ${
+                    isSelected
+                      ? 'transparent'
+                      : isDark
+                      ? 'rgba(255, 255, 255, 0.06)'
+                      : '#e2e8f0'
+                  }`,
+                  '&:hover': {
+                    backgroundColor: isSelected
+                      ? '#4f46e5'
+                      : isDark
+                      ? 'rgba(255, 255, 255, 0.1)'
+                      : '#e2e8f0',
+                  },
+                }}
+              />
+            );
+          })}
 
           <Button
             variant="contained"
             size="small"
-            startIcon={<PersonAddOutlinedIcon />}
+            startIcon={<PersonAddOutlinedIcon sx={{ fontSize: 17 }} />}
             onClick={onOpenAddUser}
-            sx={{ ml: 1 }}
+            sx={{
+              ml: 1,
+              borderRadius: 2,
+              px: 1.75,
+              fontSize: '0.8rem',
+              backgroundColor: '#6366f1',
+              '&:hover': { backgroundColor: '#4f46e5' },
+            }}
           >
             Add Developer
           </Button>
@@ -235,7 +341,7 @@ export const UserTable: React.FC<UserTableProps> = ({
       {/* Main Table */}
       <TableContainer>
         <Table sx={{ minWidth: 800 }}>
-          <TableHead sx={{ backgroundColor: '#f1f3f4' }}>
+          <TableHead>
             <TableRow>
               <TableCell>
                 <TableSortLabel
@@ -272,35 +378,44 @@ export const UserTable: React.FC<UserTableProps> = ({
                   direction={sortField === 'remaining_credit' ? sortOrder : 'desc'}
                   onClick={() => handleSort('remaining_credit')}
                 >
-                  Credit Balance / Net Overage
+                  Balance / Overages
                 </TableSortLabel>
               </TableCell>
-              <TableCell sx={{ minWidth: 160 }}>
+              <TableCell sx={{ minWidth: 170 }}>
                 <TableSortLabel
                   active={sortField === 'utilization'}
                   direction={sortField === 'utilization' ? sortOrder : 'desc'}
                   onClick={() => handleSort('utilization')}
                 >
-                  Credit Utilization
+                  Utilization
                 </TableSortLabel>
               </TableCell>
-              <TableCell align="right">Last Active</TableCell>
+              <TableCell>Last Active</TableCell>
               <TableCell align="center">Actions</TableCell>
             </TableRow>
           </TableHead>
-
           <TableBody>
             {filteredUsers.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={9} align="center" sx={{ py: 4, color: '#5f6368' }}>
-                  No developers found matching current filters.
+                <TableCell colSpan={9} align="center" sx={{ py: 6 }}>
+                  <Typography variant="body2" sx={{ color: isDark ? '#9ca3af' : '#64748b' }}>
+                    No developers match the specified search or filter criteria.
+                  </Typography>
                 </TableCell>
               </TableRow>
             ) : (
               filteredUsers.map((user) => {
-                const util = user.current_week.credit_utilization_percentage;
-                const utilColor = getUtilizationColor(util);
-                const hasOverage = user.current_week.net_billable_cost_usd > 0;
+                const current = user.current_week;
+                const utilization = current.credit_utilization_percentage;
+                const isOver = current.net_billable_cost_usd > 0;
+
+                // Color token according to quota health
+                const progressColor =
+                  utilization > 100
+                    ? '#ef4444'
+                    : utilization >= 80
+                    ? '#f59e0b'
+                    : '#10b981';
 
                 return (
                   <TableRow
@@ -309,32 +424,62 @@ export const UserTable: React.FC<UserTableProps> = ({
                     onClick={() => onSelectUser(user)}
                     sx={{
                       cursor: 'pointer',
-                      '&:hover': { backgroundColor: '#f8f9fa' },
+                      transition: 'background-color 0.12s ease',
+                      '&:hover': {
+                        backgroundColor: isDark
+                          ? 'rgba(99, 102, 241, 0.04) !important'
+                          : 'rgba(99, 102, 241, 0.03) !important',
+                      },
                     }}
                   >
-                    {/* User & Email */}
+                    {/* Developer Identity */}
                     <TableCell>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
                         <Avatar
                           sx={{
                             width: 32,
                             height: 32,
-                            bgcolor: '#1a73e8',
-                            fontSize: 14,
+                            fontSize: '0.85rem',
                             fontWeight: 600,
+                            backgroundColor: isDark ? '#1f2937' : '#e2e8f0',
+                            color: isDark ? '#c7d2fe' : '#3730a3',
+                            border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : '#cbd5e1'}`,
                           }}
                         >
                           {user.email.charAt(0).toUpperCase()}
                         </Avatar>
-                        <Box>
-                          <Typography variant="body2" sx={{ fontWeight: 600, color: '#202124' }}>
-                            {user.email}
-                          </Typography>
-                          {user.has_custom_quota && (
-                            <Typography variant="caption" sx={{ color: '#1a73e8', fontWeight: 500 }}>
-                              Custom Quota
+                        <Box sx={{ minWidth: 0 }}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                            <Typography
+                              variant="body2"
+                              sx={{
+                                fontWeight: 600,
+                                color: isDark ? '#f3f4f6' : '#1e293b',
+                                fontSize: '0.875rem',
+                              }}
+                            >
+                              {user.email}
                             </Typography>
-                          )}
+                            <Tooltip title={copiedEmail === user.email ? 'Copied!' : 'Copy email'}>
+                              <IconButton
+                                size="small"
+                                onClick={(e) => handleCopyEmail(e, user.email)}
+                                sx={{ p: 0.25, color: isDark ? '#6b7280' : '#94a3b8' }}
+                              >
+                                {copiedEmail === user.email ? (
+                                  <CheckIcon sx={{ fontSize: 13, color: '#10b981' }} />
+                                ) : (
+                                  <ContentCopyIcon sx={{ fontSize: 13 }} />
+                                )}
+                              </IconButton>
+                            </Tooltip>
+                          </Box>
+                          <Typography
+                            variant="caption"
+                            sx={{ color: isDark ? '#6b7280' : '#94a3b8', fontSize: '0.72rem' }}
+                          >
+                            {user.has_custom_quota ? 'Custom Quota' : 'Org Default Quota'}
+                          </Typography>
                         </Box>
                       </Box>
                     </TableCell>
@@ -342,36 +487,75 @@ export const UserTable: React.FC<UserTableProps> = ({
                     {/* Status Chip */}
                     <TableCell>{getStatusChip(user)}</TableCell>
 
-                    {/* Tokens */}
+                    {/* Weekly Tokens */}
                     <TableCell align="right">
-                      <Typography variant="body2" sx={{ fontWeight: 500, fontFamily: 'monospace' }}>
-                        {user.current_week.total_tokens.toLocaleString()}
+                      <Typography
+                        variant="body2"
+                        sx={{
+                          fontFamily: 'monospace',
+                          fontWeight: 600,
+                          color: isDark ? '#f9fafb' : '#0f172a',
+                          fontSize: '0.85rem',
+                        }}
+                      >
+                        {current.total_tokens.toLocaleString()}
                       </Typography>
                     </TableCell>
 
                     {/* Gross Spend */}
                     <TableCell align="right">
-                      <Typography variant="body2" sx={{ fontWeight: 600, color: '#202124' }}>
-                        ${user.current_week.gross_spend_usd.toFixed(2)}
+                      <Typography
+                        variant="body2"
+                        sx={{
+                          fontFamily: 'monospace',
+                          fontWeight: 600,
+                          color: isDark ? '#f9fafb' : '#0f172a',
+                          fontSize: '0.85rem',
+                        }}
+                      >
+                        ${current.gross_spend_usd.toFixed(2)}
                       </Typography>
                     </TableCell>
 
                     {/* Quota Credits */}
                     <TableCell align="right">
-                      <Typography variant="body2" sx={{ color: '#5f6368' }}>
-                        ${user.current_week.quota_credits_usd.toFixed(2)}
+                      <Typography
+                        variant="body2"
+                        sx={{
+                          fontFamily: 'monospace',
+                          color: isDark ? '#9ca3af' : '#64748b',
+                          fontSize: '0.85rem',
+                        }}
+                      >
+                        ${current.quota_credits_usd.toFixed(2)}
                       </Typography>
                     </TableCell>
 
-                    {/* Balance / Net Overage */}
+                    {/* Balance / Overages */}
                     <TableCell align="right">
-                      {hasOverage ? (
-                        <Typography variant="body2" sx={{ fontWeight: 700, color: '#d93025' }}>
-                          +${user.current_week.net_billable_cost_usd.toFixed(2)} Net Overage
+                      {isOver ? (
+                        <Typography
+                          variant="body2"
+                          sx={{
+                            fontFamily: 'monospace',
+                            fontWeight: 700,
+                            color: '#ef4444',
+                            fontSize: '0.85rem',
+                          }}
+                        >
+                          +${current.net_billable_cost_usd.toFixed(2)} over
                         </Typography>
                       ) : (
-                        <Typography variant="body2" sx={{ fontWeight: 600, color: '#188038' }}>
-                          ${user.current_week.remaining_credit_usd.toFixed(2)} Left
+                        <Typography
+                          variant="body2"
+                          sx={{
+                            fontFamily: 'monospace',
+                            fontWeight: 600,
+                            color: '#10b981',
+                            fontSize: '0.85rem',
+                          }}
+                        >
+                          ${current.remaining_credit_usd.toFixed(2)} rem
                         </Typography>
                       )}
                     </TableCell>
@@ -382,34 +566,54 @@ export const UserTable: React.FC<UserTableProps> = ({
                         <Box sx={{ flexGrow: 1 }}>
                           <LinearProgress
                             variant="determinate"
-                            value={Math.min(100, util)}
+                            value={Math.min(100, utilization)}
                             sx={{
-                              height: 8,
-                              borderRadius: 4,
-                              backgroundColor: '#e8eaed',
+                              height: 6,
+                              borderRadius: 3,
+                              backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#e2e8f0',
                               '& .MuiLinearProgress-bar': {
-                                backgroundColor: utilColor,
-                                borderRadius: 4,
+                                borderRadius: 3,
+                                backgroundColor: progressColor,
                               },
                             }}
                           />
                         </Box>
-                        <Typography variant="caption" sx={{ minWidth: 42, fontWeight: 600, color: utilColor }}>
-                          {util.toFixed(0)}%
+                        <Typography
+                          variant="caption"
+                          sx={{
+                            fontFamily: 'monospace',
+                            fontWeight: 600,
+                            minWidth: 42,
+                            textAlign: 'right',
+                            color: progressColor,
+                            fontSize: '0.78rem',
+                          }}
+                        >
+                          {utilization.toFixed(0)}%
                         </Typography>
                       </Box>
                     </TableCell>
 
                     {/* Last Active */}
-                    <TableCell align="right">
-                      <Typography variant="caption" sx={{ color: '#70757a' }}>
-                        {formatRelativeTime(user.current_week.last_active)}
+                    <TableCell>
+                      <Typography
+                        variant="caption"
+                        sx={{
+                          color: isDark ? '#9ca3af' : '#64748b',
+                          fontSize: '0.78rem',
+                        }}
+                      >
+                        {formatRelativeTime(current.last_active)}
                       </Typography>
                     </TableCell>
 
-                    {/* Quick Action Button */}
+                    {/* Actions Menu */}
                     <TableCell align="center" onClick={(e) => e.stopPropagation()}>
-                      <IconButton size="small" onClick={(e) => handleOpenMenu(e, user)}>
+                      <IconButton
+                        size="small"
+                        onClick={(e) => handleOpenMenu(e, user)}
+                        sx={{ color: isDark ? '#9ca3af' : '#64748b' }}
+                      >
                         <MoreVertIcon fontSize="small" />
                       </IconButton>
                     </TableCell>
@@ -421,38 +625,47 @@ export const UserTable: React.FC<UserTableProps> = ({
         </Table>
       </TableContainer>
 
-      {/* Row Action Menu */}
+      {/* Row Context Menu */}
       <Menu
         anchorEl={menuAnchor}
         open={Boolean(menuAnchor)}
         onClose={handleCloseMenu}
-        transformOrigin={{ horizontal: 'right', vertical: 'top' }}
-        anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
+        PaperProps={{
+          elevation: 3,
+          sx: {
+            borderRadius: 2,
+            minWidth: 180,
+            border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.08)' : '#e2e8f0'}`,
+            backgroundColor: isDark ? '#1f2937' : '#ffffff',
+          },
+        }}
       >
         <MenuItem
           onClick={() => {
             if (activeMenuUser) onSelectUser(activeMenuUser);
             handleCloseMenu();
           }}
+          sx={{ gap: 1.5, fontSize: '0.85rem' }}
         >
-          <EditOutlinedIcon fontSize="small" sx={{ mr: 1, color: '#1a73e8' }} />
-          Edit Quota & Settings
+          <EditOutlinedIcon fontSize="small" sx={{ color: '#6366f1' }} />
+          Edit Quota & Details
         </MenuItem>
         <MenuItem
           onClick={() => {
             if (activeMenuUser) onToggleLock(activeMenuUser.email);
             handleCloseMenu();
           }}
+          sx={{ gap: 1.5, fontSize: '0.85rem' }}
         >
           {activeMenuUser?.status === 'MANUALLY_DISABLED' ? (
             <>
-              <LockOpenIcon fontSize="small" sx={{ mr: 1, color: '#188038' }} />
-              Unlock Access
+              <LockOpenIcon fontSize="small" sx={{ color: '#10b981' }} />
+              Unlock Developer
             </>
           ) : (
             <>
-              <LockIcon fontSize="small" sx={{ mr: 1, color: '#d93025' }} />
-              Lock / Disable Access
+              <LockIcon fontSize="small" sx={{ color: '#ef4444' }} />
+              Manually Lock Developer
             </>
           )}
         </MenuItem>
@@ -461,9 +674,10 @@ export const UserTable: React.FC<UserTableProps> = ({
             if (activeMenuUser) onToggleExempt(activeMenuUser);
             handleCloseMenu();
           }}
+          sx={{ gap: 1.5, fontSize: '0.85rem' }}
         >
-          <VerifiedUserOutlinedIcon fontSize="small" sx={{ mr: 1, color: '#7b1fa2' }} />
-          {activeMenuUser?.is_exempt ? 'Remove Exemption' : 'Set as Exempt'}
+          <VerifiedUserOutlinedIcon fontSize="small" sx={{ color: '#f59e0b' }} />
+          {activeMenuUser?.is_exempt ? 'Remove Exemption' : 'Mark as Exempt'}
         </MenuItem>
       </Menu>
     </Paper>

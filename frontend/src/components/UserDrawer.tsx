@@ -3,30 +3,25 @@ import {
   Avatar,
   Box,
   Button,
+  Chip,
   Divider,
   Drawer,
-  FormControl,
   FormControlLabel,
-  FormLabel,
   Grid,
   IconButton,
   InputAdornment,
-  LinearProgress,
   Paper,
-  Radio,
-  RadioGroup,
   Switch,
   TextField,
   Typography,
+  useTheme,
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import SaveIcon from '@mui/icons-material/Save';
-import LockIcon from '@mui/icons-material/Lock';
-import LockOpenIcon from '@mui/icons-material/LockOpen';
-import VerifiedUserIcon from '@mui/icons-material/VerifiedUser';
 import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
-import LayersIcon from '@mui/icons-material/Layers';
-import { AppConfig, User, UserStatus, UserUpdatePayload } from '../types';
+import DonutLargeIcon from '@mui/icons-material/DonutLarge';
+import TuneIcon from '@mui/icons-material/Tune';
+import { AppConfig, User, UserUpdatePayload } from '../types';
 
 interface UserDrawerProps {
   user: User | null;
@@ -36,6 +31,8 @@ interface UserDrawerProps {
   onSave: (email: string, payload: UserUpdatePayload) => Promise<void>;
 }
 
+const MODEL_COLORS = ['#6366f1', '#10b981', '#f59e0b', '#3b82f6', '#ec4899', '#8b5cf6'];
+
 export const UserDrawer: React.FC<UserDrawerProps> = ({
   user,
   config,
@@ -43,6 +40,9 @@ export const UserDrawer: React.FC<UserDrawerProps> = ({
   onClose,
   onSave,
 }) => {
+  const theme = useTheme();
+  const isDark = theme.palette.mode === 'dark';
+
   const [hasCustomQuota, setHasCustomQuota] = useState(false);
   const [selectedPreset, setSelectedPreset] = useState<string>('10');
   const [customQuotaInput, setCustomQuotaInput] = useState<string>('10.00');
@@ -60,7 +60,6 @@ export const UserDrawer: React.FC<UserDrawerProps> = ({
       setCustomQuotaInput(quotaVal.toFixed(2));
       setCustomOverageInput(overageVal.toFixed(2));
 
-      // Match preset or set custom
       if (config.preset_quotas.includes(quotaVal)) {
         setSelectedPreset(String(quotaVal));
       } else {
@@ -74,10 +73,12 @@ export const UserDrawer: React.FC<UserDrawerProps> = ({
 
   if (!user) return null;
 
-  const handlePresetChange = (val: string) => {
-    setSelectedPreset(val);
-    if (val !== 'custom') {
-      setCustomQuotaInput(parseFloat(val).toFixed(2));
+  const handlePresetSelect = (val: number | 'custom') => {
+    if (val === 'custom') {
+      setSelectedPreset('custom');
+    } else {
+      setSelectedPreset(String(val));
+      setCustomQuotaInput(val.toFixed(2));
     }
   };
 
@@ -92,7 +93,7 @@ export const UserDrawer: React.FC<UserDrawerProps> = ({
         custom_quota_usd: hasCustomQuota ? quotaNum : null,
         custom_overage_usd: hasCustomQuota ? overageNum : null,
         is_exempt: isExempt,
-        status: isLocked ? 'MANUALLY_DISABLED' : (user.status === 'MANUALLY_DISABLED' ? 'ACTIVE' : user.status),
+        status: isLocked ? 'MANUALLY_DISABLED' : user.status === 'MANUALLY_DISABLED' ? 'ACTIVE' : user.status,
       };
 
       await onSave(user.email, payload);
@@ -107,6 +108,43 @@ export const UserDrawer: React.FC<UserDrawerProps> = ({
   const currentUsage = user.current_week;
   const breakdown = currentUsage.spend_breakdown;
 
+  // Prepare model distribution for Donut chart
+  const modelEntries = Object.entries(currentUsage.tokens_by_model);
+  const totalModelTokens = modelEntries.reduce((sum, [, tokens]) => sum + tokens, 0);
+
+  // SVG Donut calculation
+  const radius = 52;
+  const strokeWidth = 14;
+  const circumference = 2 * Math.PI * radius;
+  let accumulatedOffset = 0;
+
+  const donutSegments = modelEntries.map(([model, tokens], idx) => {
+    const fraction = totalModelTokens > 0 ? tokens / totalModelTokens : 0;
+    const strokeDash = fraction * circumference;
+    const offset = accumulatedOffset;
+    accumulatedOffset += strokeDash;
+    const color = MODEL_COLORS[idx % MODEL_COLORS.length];
+    return {
+      model,
+      tokens,
+      fraction,
+      strokeDash,
+      offset,
+      color,
+      spend: currentUsage.spend_by_model[model] || 0,
+    };
+  });
+
+  // Hinge point tokens calculations
+  const inputSpend = breakdown.input_spend_usd;
+  const outputSpend = breakdown.output_spend_usd;
+  const cachedSpend = breakdown.cached_spend_usd;
+  const totalHingeSpend = inputSpend + outputSpend + cachedSpend || 1;
+
+  const inputPct = (inputSpend / totalHingeSpend) * 100;
+  const outputPct = (outputSpend / totalHingeSpend) * 100;
+  const cachedPct = (cachedSpend / totalHingeSpend) * 100;
+
   return (
     <Drawer
       anchor="right"
@@ -114,9 +152,10 @@ export const UserDrawer: React.FC<UserDrawerProps> = ({
       onClose={onClose}
       PaperProps={{
         sx: {
-          width: { xs: '100%', sm: 520 },
+          width: { xs: '100%', sm: 540 },
           p: 0,
-          backgroundColor: '#f8f9fa',
+          backgroundColor: isDark ? '#090d16' : '#f8fafc',
+          borderLeft: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.08)' : '#e2e8f0'}`,
         },
       }}
     >
@@ -124,162 +163,412 @@ export const UserDrawer: React.FC<UserDrawerProps> = ({
       <Box
         sx={{
           p: 2.5,
-          backgroundColor: '#ffffff',
-          borderBottom: '1px solid #dadce0',
+          backgroundColor: isDark ? '#111827' : '#ffffff',
+          borderBottom: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.08)' : '#e2e8f0'}`,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
         }}
       >
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          <Avatar sx={{ bgcolor: '#1a73e8', width: 44, height: 44, fontWeight: 700 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.75 }}>
+          <Avatar
+            sx={{
+              bgcolor: isDark ? 'rgba(99, 102, 241, 0.2)' : 'rgba(99, 102, 241, 0.1)',
+              color: isDark ? '#c7d2fe' : '#4f46e5',
+              border: `1px solid ${isDark ? 'rgba(99, 102, 241, 0.35)' : 'rgba(99, 102, 241, 0.25)'}`,
+              width: 42,
+              height: 42,
+              fontWeight: 700,
+            }}
+          >
             {user.email.charAt(0).toUpperCase()}
           </Avatar>
           <Box>
-            <Typography variant="h6" sx={{ color: '#202124', fontSize: 17 }}>
+            <Typography variant="subtitle1" sx={{ color: isDark ? '#f9fafb' : '#0f172a', fontWeight: 600 }}>
               {user.email}
             </Typography>
-            <Typography variant="caption" sx={{ color: '#5f6368' }}>
-              Status: <strong>{user.status}</strong> {user.is_exempt && '• (Exempt)'}
-            </Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.25 }}>
+              <Chip
+                label={user.status}
+                size="small"
+                sx={{
+                  height: 20,
+                  fontSize: '0.68rem',
+                  fontWeight: 600,
+                  backgroundColor:
+                    user.status === 'ACTIVE'
+                      ? isDark ? 'rgba(16, 185, 129, 0.15)' : 'rgba(16, 185, 129, 0.1)'
+                      : isDark ? 'rgba(239, 68, 68, 0.15)' : 'rgba(239, 68, 68, 0.1)',
+                  color: user.status === 'ACTIVE' ? '#10b981' : '#ef4444',
+                }}
+              />
+              {user.is_exempt && (
+                <Chip
+                  label="Exempt"
+                  size="small"
+                  sx={{
+                    height: 20,
+                    fontSize: '0.68rem',
+                    fontWeight: 600,
+                    backgroundColor: isDark ? 'rgba(99, 102, 241, 0.15)' : 'rgba(99, 102, 241, 0.1)',
+                    color: '#818cf8',
+                  }}
+                />
+              )}
+            </Box>
           </Box>
         </Box>
-        <IconButton onClick={onClose} size="small">
-          <CloseIcon />
+        <IconButton onClick={onClose} size="small" sx={{ color: isDark ? '#9ca3af' : '#64748b' }}>
+          <CloseIcon fontSize="small" />
         </IconButton>
       </Box>
 
       {/* Drawer Content */}
       <Box sx={{ p: 3, overflowY: 'auto', flexGrow: 1 }}>
-        {/* Financial Ledger Section */}
-        <Typography variant="subtitle2" sx={{ mb: 1.5, display: 'flex', alignItems: 'center', gap: 1 }}>
-          <AccountBalanceWalletIcon fontSize="small" sx={{ color: '#1a73e8' }} />
+        {/* Financial & Quota Ledger Section */}
+        <Typography
+          variant="caption"
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1,
+            mb: 1.5,
+            fontWeight: 600,
+            textTransform: 'uppercase',
+            letterSpacing: '0.06em',
+            color: isDark ? '#9ca3af' : '#64748b',
+          }}
+        >
+          <AccountBalanceWalletIcon sx={{ fontSize: 16, color: '#6366f1' }} />
           Financial & Quota Ledger ({currentUsage.week_id})
         </Typography>
 
         <Grid container spacing={1.5} sx={{ mb: 3 }}>
           <Grid item xs={6}>
-            <Paper elevation={0} sx={{ p: 1.5, border: '1px solid #dadce0', bgcolor: '#ffffff' }}>
-              <Typography variant="caption" sx={{ color: '#5f6368' }}>
+            <Paper
+              elevation={0}
+              sx={{
+                p: 2,
+                backgroundColor: isDark ? '#111827' : '#ffffff',
+                border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.08)' : '#e2e8f0'}`,
+              }}
+            >
+              <Typography variant="caption" sx={{ color: isDark ? '#9ca3af' : '#64748b' }}>
                 Gross Token Value
               </Typography>
-              <Typography variant="h6" sx={{ fontWeight: 700, color: '#202124' }}>
+              <Typography
+                variant="h6"
+                sx={{
+                  fontWeight: 700,
+                  fontFamily: 'monospace',
+                  color: isDark ? '#f9fafb' : '#0f172a',
+                }}
+              >
                 ${currentUsage.gross_spend_usd.toFixed(2)}
               </Typography>
-              <Typography variant="caption" sx={{ color: '#70757a' }}>
+              <Typography variant="caption" sx={{ color: isDark ? '#6b7280' : '#94a3b8' }}>
                 {currentUsage.total_tokens.toLocaleString()} tokens
               </Typography>
             </Paper>
           </Grid>
           <Grid item xs={6}>
-            <Paper elevation={0} sx={{ p: 1.5, border: '1px solid #dadce0', bgcolor: '#ffffff' }}>
-              <Typography variant="caption" sx={{ color: '#5f6368' }}>
+            <Paper
+              elevation={0}
+              sx={{
+                p: 2,
+                backgroundColor: isDark ? '#111827' : '#ffffff',
+                border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.08)' : '#e2e8f0'}`,
+              }}
+            >
+              <Typography variant="caption" sx={{ color: isDark ? '#9ca3af' : '#64748b' }}>
                 Allocated Credits
               </Typography>
-              <Typography variant="h6" sx={{ fontWeight: 700, color: '#1a73e8' }}>
+              <Typography
+                variant="h6"
+                sx={{
+                  fontWeight: 700,
+                  fontFamily: 'monospace',
+                  color: '#6366f1',
+                }}
+              >
                 ${currentUsage.quota_credits_usd.toFixed(2)}
               </Typography>
-              <Typography variant="caption" sx={{ color: '#70757a' }}>
-                +${currentUsage.overage_buffer_usd.toFixed(2)} Buffer
+              <Typography variant="caption" sx={{ color: isDark ? '#6b7280' : '#94a3b8' }}>
+                +${currentUsage.overage_buffer_usd.toFixed(2)} buffer
               </Typography>
             </Paper>
           </Grid>
           <Grid item xs={6}>
-            <Paper elevation={0} sx={{ p: 1.5, border: '1px solid #dadce0', bgcolor: '#ffffff' }}>
-              <Typography variant="caption" sx={{ color: '#5f6368' }}>
+            <Paper
+              elevation={0}
+              sx={{
+                p: 2,
+                backgroundColor: isDark ? '#111827' : '#ffffff',
+                border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.08)' : '#e2e8f0'}`,
+              }}
+            >
+              <Typography variant="caption" sx={{ color: isDark ? '#9ca3af' : '#64748b' }}>
                 Remaining Balance
               </Typography>
-              <Typography variant="h6" sx={{ fontWeight: 700, color: '#188038' }}>
+              <Typography
+                variant="h6"
+                sx={{
+                  fontWeight: 700,
+                  fontFamily: 'monospace',
+                  color: '#10b981',
+                }}
+              >
                 ${currentUsage.remaining_credit_usd.toFixed(2)}
               </Typography>
-              <Typography variant="caption" sx={{ color: '#70757a' }}>
+              <Typography variant="caption" sx={{ color: isDark ? '#6b7280' : '#94a3b8' }}>
                 Available credit
               </Typography>
             </Paper>
           </Grid>
           <Grid item xs={6}>
-            <Paper elevation={0} sx={{ p: 1.5, border: '1px solid #dadce0', bgcolor: '#ffffff' }}>
-              <Typography variant="caption" sx={{ color: '#5f6368' }}>
+            <Paper
+              elevation={0}
+              sx={{
+                p: 2,
+                backgroundColor: isDark ? '#111827' : '#ffffff',
+                border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.08)' : '#e2e8f0'}`,
+              }}
+            >
+              <Typography variant="caption" sx={{ color: isDark ? '#9ca3af' : '#64748b' }}>
                 Net Quota Overage
               </Typography>
               <Typography
                 variant="h6"
                 sx={{
                   fontWeight: 700,
-                  color: currentUsage.net_billable_cost_usd > 0 ? '#d93025' : '#202124',
+                  fontFamily: 'monospace',
+                  color: currentUsage.net_billable_cost_usd > 0 ? '#ef4444' : isDark ? '#f9fafb' : '#0f172a',
                 }}
               >
                 ${currentUsage.net_billable_cost_usd.toFixed(2)}
               </Typography>
-              <Typography variant="caption" sx={{ color: '#70757a' }}>
-                Net spend above quota
+              <Typography variant="caption" sx={{ color: isDark ? '#6b7280' : '#94a3b8' }}>
+                {currentUsage.net_billable_cost_usd > 0 ? 'Excess spend throttled' : 'Within granted quota'}
               </Typography>
             </Paper>
           </Grid>
         </Grid>
 
-        {/* Model Breakdown */}
-        <Typography variant="subtitle2" sx={{ mb: 1.5, display: 'flex', alignItems: 'center', gap: 1 }}>
-          <LayersIcon fontSize="small" sx={{ color: '#1a73e8' }} />
-          Model Token & Spend Breakdown
+        {/* Interactive Model Breakdown with SVG Donut Chart */}
+        <Typography
+          variant="caption"
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1,
+            mb: 1.5,
+            fontWeight: 600,
+            textTransform: 'uppercase',
+            letterSpacing: '0.06em',
+            color: isDark ? '#9ca3af' : '#64748b',
+          }}
+        >
+          <DonutLargeIcon sx={{ fontSize: 16, color: '#6366f1' }} />
+          Model Distribution & Spend Telemetry
         </Typography>
-        <Paper elevation={0} sx={{ p: 2, mb: 3, border: '1px solid #dadce0', bgcolor: '#ffffff' }}>
-          {Object.keys(currentUsage.tokens_by_model).length === 0 ? (
-            <Typography variant="body2" sx={{ color: '#5f6368' }}>
-              No inference requests logged yet this week.
+
+        <Paper
+          elevation={0}
+          sx={{
+            p: 2.5,
+            mb: 3,
+            backgroundColor: isDark ? '#111827' : '#ffffff',
+            border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.08)' : '#e2e8f0'}`,
+          }}
+        >
+          {donutSegments.length === 0 ? (
+            <Typography variant="body2" sx={{ color: isDark ? '#9ca3af' : '#64748b', textAlign: 'center', py: 2 }}>
+              No inference requests logged yet for this developer.
             </Typography>
           ) : (
-            Object.entries(currentUsage.tokens_by_model).map(([model, tokens]) => {
-              const spend = currentUsage.spend_by_model[model] || 0;
-              const pct = currentUsage.total_tokens > 0 ? (tokens / currentUsage.total_tokens) * 100 : 0;
-              return (
-                <Box key={model} sx={{ mb: 2, '&:last-child': { mb: 0 } }}>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
-                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                      {model}
-                    </Typography>
-                    <Typography variant="body2" sx={{ color: '#202124', fontWeight: 600 }}>
-                      ${spend.toFixed(2)} ({tokens.toLocaleString()} tokens)
+            <Box sx={{ display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, alignItems: 'center', gap: 3 }}>
+              {/* SVG Donut Graphic */}
+              <Box sx={{ position: 'relative', width: 140, height: 140, flexShrink: 0 }}>
+                <svg width="140" height="140" viewBox="0 0 140 140">
+                  <g transform="rotate(-90 70 70)">
+                    {/* Background circle track */}
+                    <circle
+                      cx="70"
+                      cy="70"
+                      r={radius}
+                      fill="transparent"
+                      stroke={isDark ? 'rgba(255, 255, 255, 0.06)' : '#e2e8f0'}
+                      strokeWidth={strokeWidth}
+                    />
+                    {donutSegments.map((seg, i) => (
+                      <circle
+                        key={i}
+                        cx="70"
+                        cy="70"
+                        r={radius}
+                        fill="transparent"
+                        stroke={seg.color}
+                        strokeWidth={strokeWidth}
+                        strokeDasharray={`${seg.strokeDash} ${circumference}`}
+                        strokeDashoffset={-seg.offset}
+                        strokeLinecap="round"
+                        style={{ transition: 'stroke-dasharray 0.5s ease' }}
+                      />
+                    ))}
+                  </g>
+                </svg>
+                {/* Center text */}
+                <Box
+                  sx={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    height: '100%',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <Typography
+                    variant="caption"
+                    sx={{
+                      fontSize: '0.68rem',
+                      color: isDark ? '#9ca3af' : '#64748b',
+                      textTransform: 'uppercase',
+                    }}
+                  >
+                    Gross
+                  </Typography>
+                  <Typography
+                    variant="body2"
+                    sx={{
+                      fontWeight: 700,
+                      fontFamily: 'monospace',
+                      color: isDark ? '#f9fafb' : '#0f172a',
+                    }}
+                  >
+                    ${currentUsage.gross_spend_usd.toFixed(2)}
+                  </Typography>
+                </Box>
+              </Box>
+
+              {/* Model Legend & Metrics */}
+              <Box sx={{ flexGrow: 1, width: '100%' }}>
+                {donutSegments.map((seg) => (
+                  <Box key={seg.model} sx={{ mb: 1.5, '&:last-child': { mb: 0 } }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Box
+                          sx={{
+                            width: 10,
+                            height: 10,
+                            borderRadius: '50%',
+                            backgroundColor: seg.color,
+                          }}
+                        />
+                        <Typography variant="body2" sx={{ fontWeight: 600, fontSize: '0.82rem' }}>
+                          {seg.model}
+                        </Typography>
+                      </Box>
+                      <Typography
+                        variant="caption"
+                        sx={{
+                          fontFamily: 'monospace',
+                          fontWeight: 600,
+                          color: isDark ? '#cbd5e1' : '#334155',
+                        }}
+                      >
+                        ${seg.spend.toFixed(2)} ({(seg.fraction * 100).toFixed(0)}%)
+                      </Typography>
+                    </Box>
+                    <Typography
+                      variant="caption"
+                      sx={{ color: isDark ? '#6b7280' : '#94a3b8', display: 'block', pl: 2.25, fontSize: '0.72rem' }}
+                    >
+                      {seg.tokens.toLocaleString()} tokens
                     </Typography>
                   </Box>
-                  <LinearProgress
-                    variant="determinate"
-                    value={pct}
-                    sx={{ height: 6, borderRadius: 3, bgcolor: '#e8eaed' }}
-                  />
-                </Box>
-              );
-            })
+                ))}
+              </Box>
+            </Box>
           )}
         </Paper>
 
-        {/* Hinge Point Breakdown */}
-        <Typography variant="subtitle2" sx={{ mb: 1.5 }}>
+        {/* Hinge Point Breakdown Bar */}
+        <Typography
+          variant="caption"
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1,
+            mb: 1.5,
+            fontWeight: 600,
+            textTransform: 'uppercase',
+            letterSpacing: '0.06em',
+            color: isDark ? '#9ca3af' : '#64748b',
+          }}
+        >
           Hinge Point Cost Distribution
         </Typography>
-        <Paper elevation={0} sx={{ p: 2, mb: 3, border: '1px solid #dadce0', bgcolor: '#ffffff' }}>
-          <Grid container spacing={1}>
+
+        <Paper
+          elevation={0}
+          sx={{
+            p: 2,
+            mb: 3,
+            backgroundColor: isDark ? '#111827' : '#ffffff',
+            border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.08)' : '#e2e8f0'}`,
+          }}
+        >
+          {/* Segmented Meter Bar */}
+          <Box
+            sx={{
+              display: 'flex',
+              height: 10,
+              borderRadius: 5,
+              overflow: 'hidden',
+              backgroundColor: isDark ? 'rgba(255, 255, 255, 0.06)' : '#e2e8f0',
+              mb: 2,
+            }}
+          >
+            <Box sx={{ width: `${inputPct}%`, backgroundColor: '#6366f1' }} />
+            <Box sx={{ width: `${outputPct}%`, backgroundColor: '#a855f7' }} />
+            <Box sx={{ width: `${cachedPct}%`, backgroundColor: '#10b981' }} />
+          </Box>
+
+          <Grid container spacing={1.5}>
             <Grid item xs={4}>
-              <Typography variant="caption" sx={{ color: '#5f6368' }}>
-                Input Tokens
-              </Typography>
-              <Typography variant="body2" sx={{ fontWeight: 600 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 0.25 }}>
+                <Box sx={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: '#6366f1' }} />
+                <Typography variant="caption" sx={{ color: isDark ? '#9ca3af' : '#64748b', fontSize: '0.72rem' }}>
+                  Prompt / Input
+                </Typography>
+              </Box>
+              <Typography variant="body2" sx={{ fontWeight: 600, fontFamily: 'monospace', pl: 1.75 }}>
                 ${breakdown.input_spend_usd.toFixed(2)}
               </Typography>
             </Grid>
             <Grid item xs={4}>
-              <Typography variant="caption" sx={{ color: '#5f6368' }}>
-                Output Tokens
-              </Typography>
-              <Typography variant="body2" sx={{ fontWeight: 600 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 0.25 }}>
+                <Box sx={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: '#a855f7' }} />
+                <Typography variant="caption" sx={{ color: isDark ? '#9ca3af' : '#64748b', fontSize: '0.72rem' }}>
+                  Completion / Output
+                </Typography>
+              </Box>
+              <Typography variant="body2" sx={{ fontWeight: 600, fontFamily: 'monospace', pl: 1.75 }}>
                 ${breakdown.output_spend_usd.toFixed(2)}
               </Typography>
             </Grid>
             <Grid item xs={4}>
-              <Typography variant="caption" sx={{ color: '#5f6368' }}>
-                Cached Tokens
-              </Typography>
-              <Typography variant="body2" sx={{ fontWeight: 600 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 0.25 }}>
+                <Box sx={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: '#10b981' }} />
+                <Typography variant="caption" sx={{ color: isDark ? '#9ca3af' : '#64748b', fontSize: '0.72rem' }}>
+                  Context Cache
+                </Typography>
+              </Box>
+              <Typography variant="body2" sx={{ fontWeight: 600, fontFamily: 'monospace', pl: 1.75 }}>
                 ${breakdown.cached_spend_usd.toFixed(2)}
               </Typography>
             </Grid>
@@ -287,10 +576,31 @@ export const UserDrawer: React.FC<UserDrawerProps> = ({
         </Paper>
 
         {/* Quota Management Controls */}
-        <Typography variant="subtitle2" sx={{ mb: 1.5 }}>
-          Developer Governance & Quota Overrides
+        <Typography
+          variant="caption"
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1,
+            mb: 1.5,
+            fontWeight: 600,
+            textTransform: 'uppercase',
+            letterSpacing: '0.06em',
+            color: isDark ? '#9ca3af' : '#64748b',
+          }}
+        >
+          <TuneIcon sx={{ fontSize: 16, color: '#6366f1' }} />
+          Developer Quota & Governance Overrides
         </Typography>
-        <Paper elevation={0} sx={{ p: 2.5, border: '1px solid #dadce0', bgcolor: '#ffffff' }}>
+
+        <Paper
+          elevation={0}
+          sx={{
+            p: 2.5,
+            backgroundColor: isDark ? '#111827' : '#ffffff',
+            border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.08)' : '#e2e8f0'}`,
+          }}
+        >
           {/* Custom Quota Toggle */}
           <FormControlLabel
             control={
@@ -303,50 +613,69 @@ export const UserDrawer: React.FC<UserDrawerProps> = ({
             label={
               <Box>
                 <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                  Enable Custom Quota Limit
+                  Enable Custom Quota for this Developer
                 </Typography>
-                <Typography variant="caption" sx={{ color: '#5f6368' }}>
-                  Overrides global default (${config?.default_quota_usd.toFixed(2)})
+                <Typography variant="caption" sx={{ color: isDark ? '#9ca3af' : '#64748b' }}>
+                  Overrides organization default quota (${config?.default_quota_usd.toFixed(2)}/wk)
                 </Typography>
               </Box>
             }
-            sx={{ mb: 2, display: 'flex' }}
+            sx={{ mb: 2, alignItems: 'flex-start', ml: 0 }}
           />
 
           {hasCustomQuota && (
-            <Box sx={{ pl: 2, mb: 2, borderLeft: '3px solid #1a73e8' }}>
-              <FormControl component="fieldset" sx={{ mb: 2, width: '100%' }}>
-                <FormLabel component="legend" sx={{ fontSize: 13, fontWeight: 600 }}>
-                  Weekly Credit Presets
-                </FormLabel>
-                <RadioGroup
-                  row
-                  value={selectedPreset}
-                  onChange={(e) => handlePresetChange(e.target.value)}
-                  sx={{ gap: 1, mt: 0.5 }}
-                >
-                  {(config?.preset_quotas || [10, 15, 25, 50, 100]).map((p) => (
-                    <FormControlLabel
-                      key={p}
-                      value={String(p)}
-                      control={<Radio size="small" />}
-                      label={`$${p}`}
-                    />
-                  ))}
-                  <FormControlLabel value="custom" control={<Radio size="small" />} label="Custom" />
-                </RadioGroup>
-              </FormControl>
+            <Box sx={{ pl: 4, mb: 3 }}>
+              <Typography variant="caption" sx={{ color: isDark ? '#9ca3af' : '#64748b', fontWeight: 600, mb: 1, display: 'block' }}>
+                Preset Weekly Credit Allowances
+              </Typography>
+              <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 2 }}>
+                {(config?.preset_quotas || [5, 10, 20, 50]).map((preset) => (
+                  <Chip
+                    key={preset}
+                    label={`$${preset}/wk`}
+                    clickable
+                    onClick={() => handlePresetSelect(preset)}
+                    size="small"
+                    sx={{
+                      fontWeight: selectedPreset === String(preset) ? 700 : 500,
+                      backgroundColor:
+                        selectedPreset === String(preset)
+                          ? '#6366f1'
+                          : isDark ? 'rgba(255, 255, 255, 0.05)' : '#f1f5f9',
+                      color: selectedPreset === String(preset) ? '#ffffff' : isDark ? '#cbd5e1' : '#334155',
+                      border: `1px solid ${
+                        selectedPreset === String(preset) ? 'transparent' : isDark ? 'rgba(255, 255, 255, 0.08)' : '#cbd5e1'
+                      }`,
+                    }}
+                  />
+                ))}
+                <Chip
+                  label="Custom"
+                  clickable
+                  onClick={() => handlePresetSelect('custom')}
+                  size="small"
+                  sx={{
+                    fontWeight: selectedPreset === 'custom' ? 700 : 500,
+                    backgroundColor:
+                      selectedPreset === 'custom'
+                        ? '#6366f1'
+                        : isDark ? 'rgba(255, 255, 255, 0.05)' : '#f1f5f9',
+                    color: selectedPreset === 'custom' ? '#ffffff' : isDark ? '#cbd5e1' : '#334155',
+                  }}
+                />
+              </Box>
 
               <Grid container spacing={2}>
                 <Grid item xs={6}>
                   <TextField
-                    label="Quota Limit ($)"
+                    label="Weekly Quota ($)"
+                    type="number"
                     size="small"
                     fullWidth
                     value={customQuotaInput}
                     onChange={(e) => {
-                      setSelectedPreset('custom');
                       setCustomQuotaInput(e.target.value);
+                      setSelectedPreset('custom');
                     }}
                     InputProps={{
                       startAdornment: <InputAdornment position="start">$</InputAdornment>,
@@ -356,6 +685,7 @@ export const UserDrawer: React.FC<UserDrawerProps> = ({
                 <Grid item xs={6}>
                   <TextField
                     label="Overage Buffer ($)"
+                    type="number"
                     size="small"
                     fullWidth
                     value={customOverageInput}
@@ -382,15 +712,15 @@ export const UserDrawer: React.FC<UserDrawerProps> = ({
             }
             label={
               <Box>
-                <Typography variant="body2" sx={{ fontWeight: 600, color: isExempt ? '#7b1fa2' : '#202124' }}>
-                  Exempt from Quota Throttling
+                <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                  Exempt from Automatic Quota Throttling
                 </Typography>
-                <Typography variant="caption" sx={{ color: '#5f6368' }}>
-                  Developer will never be throttled even if hard limit is breached.
+                <Typography variant="caption" sx={{ color: isDark ? '#9ca3af' : '#64748b' }}>
+                  Developer will never be moved to antigravity-disabled@, even if quota is breached.
                 </Typography>
               </Box>
             }
-            sx={{ mb: 2, display: 'flex' }}
+            sx={{ mb: 2, alignItems: 'flex-start', ml: 0 }}
           />
 
           {/* Manual Lock Toggle */}
@@ -404,15 +734,15 @@ export const UserDrawer: React.FC<UserDrawerProps> = ({
             }
             label={
               <Box>
-                <Typography variant="body2" sx={{ fontWeight: 600, color: isLocked ? '#d93025' : '#202124' }}>
-                  Manually Lock Access
+                <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                  Manually Lock Developer
                 </Typography>
-                <Typography variant="caption" sx={{ color: '#5f6368' }}>
-                  Forces user into disabled group. Protected from automatic Monday resets.
+                <Typography variant="caption" sx={{ color: isDark ? '#9ca3af' : '#64748b' }}>
+                  Immediately demotes to antigravity-disabled@, revoking Antigravity IDE access.
                 </Typography>
               </Box>
             }
-            sx={{ display: 'flex' }}
+            sx={{ alignItems: 'flex-start', ml: 0 }}
           />
         </Paper>
       </Box>
@@ -420,15 +750,15 @@ export const UserDrawer: React.FC<UserDrawerProps> = ({
       {/* Footer Actions */}
       <Box
         sx={{
-          p: 2.5,
-          backgroundColor: '#ffffff',
-          borderTop: '1px solid #dadce0',
+          p: 2,
+          backgroundColor: isDark ? '#111827' : '#ffffff',
+          borderTop: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.08)' : '#e2e8f0'}`,
           display: 'flex',
           justifyContent: 'flex-end',
           gap: 1.5,
         }}
       >
-        <Button variant="outlined" onClick={onClose} disabled={saving}>
+        <Button variant="outlined" onClick={onClose} disabled={saving} sx={{ borderRadius: 2 }}>
           Cancel
         </Button>
         <Button
@@ -436,8 +766,13 @@ export const UserDrawer: React.FC<UserDrawerProps> = ({
           startIcon={<SaveIcon />}
           onClick={handleSaveClick}
           disabled={saving}
+          sx={{
+            borderRadius: 2,
+            backgroundColor: '#6366f1',
+            '&:hover': { backgroundColor: '#4f46e5' },
+          }}
         >
-          {saving ? 'Saving...' : 'Save Draft'}
+          {saving ? 'Saving...' : 'Save Changes'}
         </Button>
       </Box>
     </Drawer>

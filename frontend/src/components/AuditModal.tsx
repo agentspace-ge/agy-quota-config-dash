@@ -14,7 +14,6 @@ import {
   TableContainer,
   TableHead,
   TableRow,
-  Typography,
 } from '@mui/material';
 import HistoryIcon from '@mui/icons-material/History';
 import { AuditEvent } from '../types';
