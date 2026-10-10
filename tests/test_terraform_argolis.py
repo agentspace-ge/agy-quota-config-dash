@@ -50,7 +50,10 @@ def test_cloud_run_ingress_and_iam():
     # Confirm no allUsers binding exists in any terraform file
     for tf_file in TF_DIR.glob("*.tf"):
         content = tf_file.read_text()
-        assert "allUsers" not in content, f"allUsers found in {tf_file.name} - unauthenticated access must be strictly forbidden"
+        assert "allUsers" not in content, (
+            f"allUsers found in {tf_file.name} - unauthenticated access must be strictly forbidden"
+        )
+
 
 
 def test_internal_lb_resources():

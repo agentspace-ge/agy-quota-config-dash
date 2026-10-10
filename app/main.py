@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.api.deps import get_evaluator
+from app.api.deps import get_evaluator, get_pool_client
 from app.api.routes_audit import router as audit_router
 from app.api.routes_config import router as config_router
 from app.api.routes_evaluator import router as evaluator_router
@@ -31,8 +31,11 @@ def scheduled_evaluation_job():
     try:
         evaluator = get_evaluator()
         evaluator.run_evaluation(triggered_by="HOURLY_APS_CRON", is_publish=False)
+        pool_client = get_pool_client()
+        pool_client.get_pool_stats(force_refresh=True)
     except Exception as e:
         logger.error(f"Scheduled quota evaluation failed: {e}", exc_info=True)
+
 
 
 @asynccontextmanager

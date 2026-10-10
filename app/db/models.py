@@ -163,6 +163,19 @@ class AuditEvent(BaseModel):
     details: dict = Field(default_factory=dict)
 
 
+class CreditPoolStats(BaseModel):
+    tier_key: str = "plus"
+    tier_name: str = "Gemini Enterprise Plus"
+    usage_wtu: int = 0
+    limit_wtu: int = 37_500_000
+    usage_usd: float = 0.0
+    limit_usd: float = 75.00
+    utilization_pct: float = 0.0
+    window_start_utc: datetime | None = None
+    next_reset_utc: datetime | None = None
+    last_synced_at: datetime | None = None
+
+
 class KPIStats(BaseModel):
     active_developers: int = 0
     auto_throttled_developers: int = 0
@@ -173,6 +186,8 @@ class KPIStats(BaseModel):
     total_credits_allocated_usd: float = 0.0
     total_net_overages_usd: float = 0.0
     week_id: str = ""
+    credit_pool: CreditPoolStats | None = None
+
 
 
 class UserUpdateRequest(BaseModel):

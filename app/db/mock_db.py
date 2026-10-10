@@ -7,6 +7,7 @@ from app.audit.emitter import BaseAuditEmitter
 from app.db.models import (
     AppConfig,
     AuditEvent,
+    CreditPoolStats,
     CurrentWeekUsage,
     SpendBreakdown,
     User,
@@ -25,7 +26,9 @@ class MockDatabase:
         self._users: dict[str, User] = {}
         self._audit_events: list[AuditEvent] = []
         self._snapshots: dict[str, list[WeeklySnapshot]] = {}
+        self._credit_pool: CreditPoolStats | None = None
         self._init_mock_data()
+
 
     def _init_mock_data(self):
         """Seed realistic demo users for the sandbox environment."""
@@ -281,3 +284,12 @@ class MockDatabase:
         with self._lock:
             key = user_email.lower().strip()
             return [snap.model_copy(deep=True) for snap in self._snapshots.get(key, [])]
+
+    def get_credit_pool(self) -> CreditPoolStats | None:
+        with self._lock:
+            return self._credit_pool.model_copy(deep=True) if self._credit_pool else None
+
+    def save_credit_pool(self, pool: CreditPoolStats) -> None:
+        with self._lock:
+            self._credit_pool = pool.model_copy(deep=True)
+

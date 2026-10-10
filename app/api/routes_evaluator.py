@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, Depends
 
-from app.api.deps import get_db, get_evaluator
+from app.api.deps import get_db, get_evaluator, get_pool_client
 from app.core.timezone_engine import get_current_week_window
 from app.db.models import EvaluationResult, KPIStats, UserStatus
 
@@ -10,9 +10,14 @@ router = APIRouter(prefix="/api/evaluator", tags=["Evaluator"])
 
 
 @router.post("/publish", response_model=EvaluationResult)
-def publish_and_sync(evaluator=Depends(get_evaluator)):
+def publish_and_sync(evaluator=Depends(get_evaluator), pool_client=Depends(get_pool_client)):
     """Execute immediate full evaluation & publish sync."""
     result = evaluator.run_evaluation(triggered_by="admin_publish_button", is_publish=True)
+    # Refresh license pool metrics alongside user publish
+    try:
+        pool_client.get_pool_stats(force_refresh=True)
+    except Exception:
+        pass
     return result
 
 
@@ -24,7 +29,7 @@ def run_evaluation_manual(evaluator=Depends(get_evaluator)):
 
 
 @router.get("/kpis", response_model=KPIStats)
-def get_kpi_stats(db=Depends(get_db)):
+def get_kpi_stats(db=Depends(get_db), pool_client=Depends(get_pool_client)):
     users = db.list_users()
     config = db.get_config()
     week_id, _, _, _ = get_current_week_window(config.timezone)
@@ -39,6 +44,13 @@ def get_kpi_stats(db=Depends(get_db)):
     total_credits = sum(u.current_week.quota_credits_usd for u in users)
     total_net = sum(u.current_week.net_billable_cost_usd for u in users)
 
+    # Fetch cached or live Google Cloud subscription pool stats
+    pool_stats = None
+    try:
+        pool_stats = pool_client.get_pool_stats()
+    except Exception:
+        pass
+
     return KPIStats(
         active_developers=active_count,
         auto_throttled_developers=throttled_count,
@@ -49,4 +61,6 @@ def get_kpi_stats(db=Depends(get_db)):
         total_credits_allocated_usd=round(total_credits, 2),
         total_net_overages_usd=round(total_net, 2),
         week_id=week_id,
+        credit_pool=pool_stats,
     )
+

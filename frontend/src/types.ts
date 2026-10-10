@@ -58,6 +58,19 @@ export interface AppConfig {
   models: Record<string, ModelPricing>;
 }
 
+export interface CreditPoolStats {
+  tier_key: string;
+  tier_name: string;
+  usage_wtu: number;
+  limit_wtu: number;
+  usage_usd: number;
+  limit_usd: number;
+  utilization_pct: number;
+  window_start_utc?: string | null;
+  next_reset_utc?: string | null;
+  last_synced_at?: string | null;
+}
+
 export interface KPIStats {
   active_developers: number;
   auto_throttled_developers: number;
@@ -68,7 +81,9 @@ export interface KPIStats {
   total_credits_allocated_usd: number;
   total_net_overages_usd: number;
   week_id: string;
+  credit_pool?: CreditPoolStats | null;
 }
+
 
 export interface AuditEvent {
   event_id: string;

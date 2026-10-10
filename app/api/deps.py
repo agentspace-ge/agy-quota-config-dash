@@ -11,12 +11,13 @@ from app.identity.mock_identity import MockCloudIdentityGroupManager
 
 logger = logging.getLogger(__name__)
 
-# Singletons for runtime
 _db_instance = None
 _bq_instance = None
 _identity_instance = None
 _evaluator_instance = None
 _audit_emitter_instance = None
+_pool_client_instance = None
+
 
 
 def get_audit_emitter() -> BaseAuditEmitter:
@@ -100,3 +101,24 @@ def get_evaluator() -> QuotaEvaluator:
             identity_client=get_identity(),
         )
     return _evaluator_instance
+
+
+def get_pool_client():
+    global _pool_client_instance
+    if _pool_client_instance is None:
+        if settings.USE_MOCK_SERVICES:
+            from app.monitoring.mock_pool import MockCloudMonitoringPoolClient
+
+            logger.info("Initializing MockCloudMonitoringPoolClient sandbox")
+            _pool_client_instance = MockCloudMonitoringPoolClient(db_client=get_db())
+        else:
+            from app.monitoring.pool_client import CloudMonitoringPoolClient
+
+            logger.info(f"Initializing CloudMonitoringPoolClient (project={settings.PROJECT_ID})")
+            _pool_client_instance = CloudMonitoringPoolClient(
+                project_id=settings.PROJECT_ID,
+                db_client=get_db(),
+                cache_ttl_seconds=getattr(settings, "MONITORING_CACHE_TTL_SECONDS", 300),
+            )
+    return _pool_client_instance
+

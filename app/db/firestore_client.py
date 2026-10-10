@@ -10,6 +10,7 @@ from app.db.models import (
     DEFAULT_MODEL_PRICING,
     AppConfig,
     AuditEvent,
+    CreditPoolStats,
     ModelPricing,
     User,
     WeeklySnapshot,
@@ -142,3 +143,19 @@ class FirestoreDatabase:
             .stream()
         )
         return [WeeklySnapshot(**doc.to_dict()) for doc in snaps if doc.exists]
+
+    def get_credit_pool(self) -> CreditPoolStats | None:
+        try:
+            doc = self.config_collection.document("credit_pool").get()
+            if doc.exists:
+                return CreditPoolStats(**(doc.to_dict() or {}))
+        except Exception as e:
+            logger.error(f"Error fetching credit pool doc from Firestore: {e}")
+        return None
+
+    def save_credit_pool(self, pool: CreditPoolStats) -> None:
+        try:
+            self.config_collection.document("credit_pool").set(pool.model_dump(mode="json"))
+        except Exception as e:
+            logger.error(f"Error saving credit pool doc to Firestore: {e}")
+
