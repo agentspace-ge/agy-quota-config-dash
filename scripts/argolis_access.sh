@@ -62,6 +62,12 @@ Examples:
 EOF
 }
 
+# If help is requested as command or option, handle immediately
+if [[ "$COMMAND" == "-h" || "$COMMAND" == "--help" || "$COMMAND" == "help" ]]; then
+  show_help
+  exit 0
+fi
+
 # Process options
 while [[ $# -gt 0 ]]; do
   case "$1" in

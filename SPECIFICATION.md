@@ -11,12 +11,15 @@
 The **Antigravity Quota & Usage Management Portal** provides fine-grained visibility, credit tracking, cost estimation, and automated access governance for developer access to Google Antigravity (Gemini Enterprise AI Developer Tools).
 
 > [!NOTE]
-> **Independent Quota Approximation Layer**: This system does not integrate with or modify native Gemini Enterprise (GE) quota systems. Gemini Enterprise enforces quota as a pooled entitlement at the GCP project level. This portal operates strictly as an independent management and approximation layer built on top of it, where administrators define per-developer quota targets and enforce access governance via Cloud Identity groups based on estimated usage from BigQuery audit logs.
+> **Independent Quota Governance & Upstream Pool Visibility**: Gemini Enterprise enforces subscription quota as a pooled entitlement at the GCP project level. This portal establishes a **two-layer visibility and governance model**:
+> 1. **Upstream Subscription Quota Pool**: Direct read-only telemetry from **Google Cloud Monitoring** (`discoveryengine.googleapis.com/quota/ratev2/...`), providing live organizational visibility into subscription license tier, gross Workload Token Unit (WTU) consumption, contract USD value, and the official Google Cloud weekly reset schedule.
+> 2. **Per-Developer Allocation & Access Governance**: An independent management layer where administrators define per-developer credit budgets, track estimated usage from BigQuery inference logs, and automate access enforcement via Cloud Identity groups (`antigravity-enabled@` vs `antigravity-disabled@`).
 
 To minimize architectural complexity and infrastructure overhead, the system is deployed as a **single, always-on minimal Cloud Run instance** (`min-instances: 1`, `max-instances: 1`, 1 vCPU, 512MB RAM). This single instance hosts:
 1. **The Web Dashboard & REST API**: Instantaneous page loads with zero cold starts for admin users.
-2. **The Embedded Background Worker**: Runs an internal scheduler (e.g., Python `APScheduler` / `asyncio` loop) to evaluate quotas hourly, completely eliminating the need for external Cloud Scheduler cron jobs.
-3. **Instant Publish Handler**: Exposes an in-process trigger invoked whenever the admin clicks "Publish & Sync" in the UI.
+2. **Cloud Monitoring Quota Pool Client**: Maintains an in-memory cache with a 300-second TTL and automatic Firestore fallback, polling live subscription tier and WTU telemetry without burdening GCP quota limits.
+3. **The Embedded Background Worker**: Runs an internal scheduler (Python `APScheduler` loop) to evaluate developer quotas hourly and refresh pool statistics, completely eliminating the need for external Cloud Scheduler cron jobs.
+4. **Instant Publish Handler**: Exposes an in-process trigger invoked whenever the admin clicks "Publish & Sync" in the UI to immediately reconcile identity groups and refresh pool metrics.
 
 ```mermaid
 flowchart TD
@@ -27,6 +30,10 @@ flowchart TD
         BQ_SHARDS -->|"Terraform Unified View"| BQ[("BigQuery View\n(businessaicode_inference_response)")]
     end
 
+    subgraph SubscriptionPool ["Upstream Subscription Telemetry"]
+        CM["Google Cloud Monitoring\n(discoveryengine.googleapis.com/quota/ratev2)"]
+    end
+
     subgraph AccessLayer ["Admin Access & Network Ingress"]
         AdminBrowser["Admin Browser\n(http://localhost:8080)"] <-->|"gcloud auth identity"| ProxyBridge["Local IAM Proxy Bridge\n(argolis_access.sh proxy)"]
         ProxyBridge <-->|"Bearer Token (IAM Auth)"| WebApp
@@ -34,14 +41,19 @@ flowchart TD
 
     subgraph SingleContainer ["Single Always-On Cloud Run Instance (min=1, max=1)"]
         direction TB
-        WebApp["FastAPI / Express Web Server\n(Cloud Run in us-east5)"]
-        EmbeddedCron["Internal Hourly Scheduler\n(APScheduler / asyncio loop)"] -->|"Hourly Trigger"| Evaluator["In-Memory Evaluator Worker"]
+        WebApp["FastAPI Web Server\n(Cloud Run in us-east5)"]
+        EmbeddedCron["Internal Hourly Scheduler\n(APScheduler loop)"] -->|"Hourly Trigger"| Evaluator["In-Memory Evaluator Worker"]
         WebApp -->|"Publish Button Click"| Evaluator
+        PoolClient["Cloud Monitoring Pool Client\n(300s TTL Cache & DB Fallback)"]
+        WebApp --> PoolClient
+        Evaluator --> PoolClient
     end
+
+    PoolClient -->|"Query Subscription Pool (WTU/Tier)"| CM
 
     subgraph ExternalBackends ["GCP & Identity Services"]
         Evaluator -->|"Extract Weekly Tokens"| BQ
-        Evaluator <-->|"Read/Write Settings & Spend"| FS[("Google Cloud Firestore")]
+        Evaluator <-->|"Read/Write Settings, Spend & Pool Cache"| FS[("Google Cloud Firestore")]
         Evaluator -->|"Dual-Write Audit Logs"| CL_AUDIT[("Cloud Logging\nantigravity-quota-audit")]
         Evaluator -->|"Reconcile Memberships"| CI_API["Cloud Identity Directory API"]
         CI_API --> G_EN["antigravity-enabled@\n(Bound to roles/businessaicode.user)"]
@@ -78,6 +90,29 @@ In Antigravity enterprise deployments, user quotas are distributed as **credit a
 To avoid visual clutter while maintaining legal/accounting compliance, the application features a **single, prominent disclaimer banner** pinned to the dashboard header / footer:
 
 > ℹ️ **Estimation Notice**: *All token breakdowns, cost calculations, credit balances, and spend metrics displayed in this portal are estimated projections calculated from raw token counts and configured model pricing assumptions.*
+
+### 2.3 Upstream Subscription Quota Pool Mechanics (Cloud Monitoring)
+
+While Section 2.1 governs internal developer credit allocations, the organization's overarching entitlement is governed by its Gemini Enterprise contract tier. The portal interfaces with **Google Cloud Monitoring API v3** to track and display this upstream quota pool:
+
+1. **Upstream Quota Metrics**:
+   - Usage: `discoveryengine.googleapis.com/quota/ratev2/net_usage`
+   - Limit: `discoveryengine.googleapis.com/quota/ratev2/limit`
+   - Evaluated across subscription tiers via `metric.label.quota_metric_name`:
+     - **`agentic_wtu_tier_enterprise_plus_pp_weekly_regional`**: Gemini Enterprise Plus (37.5M WTU limit, \$75.00 contract value at \$2.00 / 1M WTU).
+     - **`agentic_wtu_tier_enterprise_standard_pp_weekly_regional`**: Gemini Enterprise Standard (40M WTU limit, \$80.00 contract value).
+     - **`agentic_wtu_tier_consumption_only_pp_weekly_regional`**: Consumption-Only / Flex.
+
+2. **Official Reset Cycle & Countdown**:
+   - The upstream quota engine defines the start of each weekly window via the metric point label `window_start_time` (epoch seconds).
+   - Window Start: $T_{\text{window\_start}} = \text{datetime.fromtimestamp}(\text{window\_start\_time})$.
+   - Next Weekly Reset: $T_{\text{next\_reset}} = T_{\text{window\_start}} + 7 \text{ days}$.
+   - Countdown Duration: $T_{\text{remaining}} = \max(0, T_{\text{next\_reset}} - T_{\text{now}})$, formatted dynamically as `Weekly Pool Resets in: Xd Xh`.
+
+3. **In-Memory Caching & Firestore Resiliency**:
+   - High-frequency web UI polling is shielded by a **300-second in-memory TTL cache** in `CloudMonitoringPoolClient`.
+   - On every successful upstream read, current metrics are mirrored to Firestore document `config/credit_pool`.
+   - If Cloud Monitoring queries fail due to quota limits or transient network issues, the client transparently returns the last valid Firestore snapshot.
 
 ---
 
@@ -363,11 +398,12 @@ GROUP BY
 
 ## 7. Firestore Database Schema
 
-Firestore stores the application settings, user configurations, weekly consumption, and credit ledgers.
+Firestore stores the application settings, user configurations, weekly consumption, credit ledgers, and upstream subscription quota pool cache.
 
 ```mermaid
 erDiagram
     CONFIG_SETTINGS ||--o{ MODEL_PRICING : contains
+    CONFIG_SETTINGS ||--|| CREDIT_POOL_CACHE : contains
     USERS ||--o{ AUDIT_EVENTS : tracks
     USERS ||--o{ WEEKLY_SNAPSHOTS : archives
 
@@ -381,6 +417,20 @@ erDiagram
         array preset_quotas "[10, 15, 25, 50, 100]"
         string webhook_alert_url "https://chat.googleapis.com/..."
         datetime last_publish_timestamp
+    }
+
+    CREDIT_POOL_CACHE {
+        string doc_id "credit_pool"
+        string tier_key "plus"
+        string tier_name "Gemini Enterprise Plus"
+        int64 usage_wtu "5106993"
+        int64 limit_wtu "37500000"
+        decimal usage_usd "10.21"
+        decimal limit_usd "75.00"
+        decimal utilization_pct "13.6"
+        datetime window_start_utc "2026-10-10T15:17:05Z"
+        datetime next_reset_utc "2026-10-17T15:17:05Z"
+        datetime last_synced_at "2026-10-10T16:19:55Z"
     }
 
     USERS {
@@ -449,25 +499,57 @@ erDiagram
 }
 ```
 
+### 7.2 Firestore Credit Pool Cache Document (`config/credit_pool`)
+
+Persists the latest upstream Google Cloud Monitoring subscription pool metrics to provide instant dashboard loads and offline/rate-limit fallback:
+
+```json
+{
+  "tier_key": "plus",
+  "tier_name": "Gemini Enterprise Plus",
+  "usage_wtu": 5106993,
+  "limit_wtu": 37500000,
+  "usage_usd": 10.21,
+  "limit_usd": 75.00,
+  "utilization_pct": 13.6,
+  "window_start_utc": "2026-10-10T15:17:05Z",
+  "next_reset_utc": "2026-10-17T15:17:05Z",
+  "last_synced_at": "2026-10-10T16:19:55.420160Z"
+}
+```
+
 ---
 
 ## 8. Web Application UI/UX Specification
 
 ### 8.1 Global Estimation Disclaimer & Top Banner
-* **Single Disclaimer**: Displayed once at the top/footer of the portal:
-  * *"ℹ️ All token breakdown percentages, gross spend figures, and net cost metrics are estimated projections calculated from token usage logs and model pricing configurations."*
+* **Single Disclaimer**: Displayed once at the top of the portal below the application header:
+  * *"ℹ️ All token breakdown percentages, gross spend figures, credit balances, and net cost metrics are estimated projections calculated from raw token telemetry logs and configured model pricing assumptions."*
 
-### 8.2 Main Dashboard (User Management Table)
+### 8.2 Upstream Hero Widget: Antigravity Weekly Quota Pool Card
+Positioned prominently above the developer management table, this hero component renders live upstream contract entitlement data fetched from Google Cloud Monitoring:
+* **Header & Identity**:
+  * Cloud Icon + Title: **`Antigravity Weekly Quota Pool`**
+  * Tier Badge: **`Tier: Gemini Enterprise Plus`** (or Standard / Flex)
+  * Information Tooltip: Clarifies that this card represents the upstream Google Cloud Subscription Quota Pool from Cloud Monitoring, distinct from internal developer credit targets.
+* **Cycle Countdown & Timestamps**:
+  * Countdown Pill: **`Weekly Pool Resets in: Xd Xh`** (e.g. `Weekly Pool Resets in: 6d 22h`)
+  * Dual Timestamps: Displays exact reset moment in both UTC and local browser time (e.g. `Oct 17, 15:17 UTC · Oct 17, 11:17 Local`).
+* **Dual Consumption Metrics**:
+  * Primary Spend: **`$10.21 / $75.00 limit`** with color-coded utilization indicator (`13.6% utilized`).
+  * Secondary WTU Raw Tokens: **`5,106,993 / 37,500,000 WTU (5.11M / 37.50M)`**.
+* **Progress Bar**: Multi-stage visual progress bar with smooth transitions (Emerald `<80%`, Amber `80-100%`, Rose `>100%`).
 
-*   **KPI Summary Chips**:
-    *   `Active Developers`: 178
-    *   `Auto-Throttled`: 4
-    *   `Total Tokens This Week`: 128.4M
-    *   `Total Gross Usage`: \$1,420.50 *(Estimated)*
-    *   `Total Credits Allocated`: \$1,780.00
-    *   `Total Net Overages`: \$64.20 *(Billable Spend)*
+### 8.3 Internal FinOps KPI Summary Cards
+Six summary cards reflecting internal developer credit allocations and BigQuery telemetry:
+* `Active Developers`: Number of developers in `ACTIVE` status.
+* `Auto-Throttled`: Number of developers currently paused in `antigravity-disabled@`.
+* `Tokens This Week`: Total weekly token volume (e.g. `53.54M`).
+* `Gross Usage`: Aggregated developer token spend across all models (e.g. `$6.48`).
+* `Credits Allocated`: Sum of all granted developer quotas (e.g. `$23.00`).
+* `Net Overages`: Cumulative spend exceeding individual quotas (e.g. `$0.88`).
 
-*   **Sortable Interactive Table Columns**:
+### 8.4 Developer Governance Table
 
 | Column Name | Data Type | Sortable | Display / Visual Elements |
 | :--- | :--- | :---: | :--- |
@@ -481,7 +563,7 @@ erDiagram
 | **Last Active** | Relative Time | Yes | "12 minutes ago" |
 | **Actions** | Action Menu | No | `[ Quick Edit Quota ]` \| `[ Disable / Lock ]` \| `[ Set Exempt ]` |
 
-### 8.3 User Detail Slide-out Drawer
+### 8.5 User Detail Slide-out Drawer
 Clicking any user row opens a slide-out drawer containing:
 1.  **Credit & Cost Ledger**:
     *   **Gross Token Value**: \$14.85
@@ -495,7 +577,7 @@ Clicking any user row opens a slide-out drawer containing:
     *   Overage Buffer Input (\$XX.XX).
     *   `Exempt from Quota Controls` Checkbox.
     *   `Manually Lock / Disable User` Toggle.
-### 8.4 Developer Onboarding ("Add Developer" Dialog)
+### 8.6 Developer Onboarding ("Add Developer" Dialog)
 In addition to synthetic discovery from BigQuery telemetry, administrators can manually pre-provision developers:
 * **Interactive Modal**: Admin enters developer email, selects weekly credit target (default or custom), sets overage buffer, and sets exemption status.
 * **REST API**: Invokes `POST /api/users` to initialize the developer in Firestore with status `ACTIVE`.
@@ -507,10 +589,11 @@ In addition to synthetic discovery from BigQuery telemetry, administrators can m
 
 | Identity / Service Account | Granted IAM Roles | Scoped Resource | Purpose |
 | :--- | :--- | :--- | :--- |
+| **Cloud Run Portal SA** (`antigravity-quota-portal@...`) | `roles/monitoring.viewer` | GCP Project | Queries upstream Gemini Enterprise subscription quota metrics (`discoveryengine.googleapis.com/quota/ratev2`). |
 | **Cloud Run Portal SA** (`antigravity-quota-portal@...`) | `roles/bigquery.dataViewer`<br>`roles/bigquery.jobUser` | BigQuery Dataset & Project | Queries weekly developer token logs. |
-| **Cloud Run Portal SA** (`antigravity-quota-portal@...`) | `roles/datastore.user` | Cloud Firestore | Manages configurations, quotas, user states, and audit trails. |
+| **Cloud Run Portal SA** (`antigravity-quota-portal@...`) | `roles/datastore.user` | Cloud Firestore | Manages configurations, quotas, user states, subscription pool cache, and audit trails. |
 | **Cloud Run Portal SA** (`antigravity-quota-portal@...`) | `roles/logging.logWriter` | GCP Project | Emits structured compliance audit logs to Cloud Logging (`antigravity-quota-audit`). |
-| **Cloud Run Portal SA** (`antigravity-quota-portal@...`) | `roles/serviceusage.serviceUsageConsumer` | GCP Project | Consumes BigQuery and logging APIs without project admin rights. |
+| **Cloud Run Portal SA** (`antigravity-quota-portal@...`) | `roles/serviceusage.serviceUsageConsumer` | GCP Project | Consumes BigQuery, Cloud Monitoring, and logging APIs without project admin rights. |
 | **Cloud Run Portal SA** (`antigravity-quota-portal@...`) | Cloud Identity **Owner & Member** | `antigravity-enabled@`<br>`antigravity-disabled@` | Reconciles developer memberships. **Zero GCP project IAM admin rights.** |
 | **Admin Users / Domains** (e.g. `domain:gcp.altostrat.com`) | `roles/run.invoker` | Cloud Run Service | Authorized invocation of the web dashboard and REST APIs under IAM authentication. |
 | **Cloud Logging Sink Writer** (`service-PROJECT_NUM@gcp-sa-logging...`) | `roles/bigquery.dataEditor` | `antigravity_inference_logs` Dataset | Ingests `businessaicode.googleapis.com` logs from Cloud Logging into BigQuery. |
@@ -565,4 +648,5 @@ The portal is actively running with:
 1. **Live Inference Log Ingestion**: Ingesting daily sharded telemetry from `businessaicode.googleapis.com` via a consolidated BigQuery view.
 2. **Dynamic Pricing Calibration**: Supporting current models including `gemini-3.8-flash`, `gemini-3.1-pro-preview`, and `gemini-3.5-flash-lite`.
 3. **Automated Directory Governance**: Cloud Identity groups (`antigravity-enabled@` / `antigravity-disabled@`) fully provisioned and managed via Terraform.
-4. **Argolis Compliance**: Zero unauthenticated exposure, IAM-authenticated invocation, and local proxy bridge for operational administration.
+4. **Upstream Quota Telemetry**: Google Cloud Monitoring ratev2 integration with 300s TTL in-memory caching and Firestore snapshot fallback, tracking organizational subscription tier, WTU token usage, and live 7-day reset countdowns.
+5. **Argolis Compliance**: Zero unauthenticated exposure, IAM-authenticated invocation, and local proxy bridge for operational administration.
