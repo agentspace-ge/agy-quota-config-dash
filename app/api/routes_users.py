@@ -5,8 +5,8 @@ from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from app.api.deps import get_db, get_identity
-from app.core.timezone_engine import get_current_week_window
+from app.api.deps import get_db, get_identity, get_pool_client
+from app.core.timezone_engine import resolve_pool_window
 from app.db.models import (
     AuditEvent,
     CurrentWeekUsage,
@@ -67,14 +67,31 @@ def get_user(email: str, db=Depends(get_db)):
 
 
 @router.post("", response_model=User, status_code=201)
-def create_user(payload: UserCreateRequest, db=Depends(get_db), identity=Depends(get_identity)):
+def create_user(
+    payload: UserCreateRequest,
+    db=Depends(get_db),
+    identity=Depends(get_identity),
+    pool_client=Depends(get_pool_client),
+):
     existing = db.get_user(payload.email)
     if existing:
         raise HTTPException(status_code=400, detail=f"User {payload.email} already exists")
 
     config = db.get_config()
     now = datetime.now(UTC)
-    week_id, _, _, _ = get_current_week_window(config.timezone, now)
+
+    pool_stats = None
+    try:
+        pool_stats = pool_client.get_pool_stats()
+    except Exception:
+        pass
+    if pool_stats is None:
+        try:
+            pool_stats = db.get_credit_pool()
+        except Exception:
+            pass
+
+    week_id, start_utc, _, _ = resolve_pool_window(pool_stats, config.timezone, now)
 
     quota = (
         payload.custom_quota_usd
@@ -96,6 +113,7 @@ def create_user(payload: UserCreateRequest, db=Depends(get_db), identity=Depends
         custom_overage_usd=payload.custom_overage_usd if payload.has_custom_quota else None,
         current_week=CurrentWeekUsage(
             week_id=week_id,
+            window_start_utc=start_utc,
             quota_credits_usd=quota,
             remaining_credit_usd=quota,
             overage_buffer_usd=overage,

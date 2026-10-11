@@ -33,8 +33,26 @@ class MockDatabase:
     def _init_mock_data(self):
         """Seed realistic demo users for the sandbox environment."""
         now = datetime.now(UTC)
-        iso_year, iso_week, _ = now.isocalendar()
+        # Compute realistic start/reset timestamps matching current weekly cycle (Saturday cycle)
+        days_since_cycle = (now.weekday() - 5) % 7
+        cycle_start = (now - timedelta(days=days_since_cycle)).replace(hour=12, minute=47, second=20, microsecond=0)
+        cycle_reset = cycle_start + timedelta(days=7)
+        iso_year, iso_week, _ = cycle_start.isocalendar()
         week_id = f"{iso_year}-W{iso_week:02d}"
+
+        # Initialize mock credit pool stats
+        self._credit_pool = CreditPoolStats(
+            tier_key="plus",
+            tier_name="Gemini Enterprise Plus",
+            usage_wtu=3_900_567,
+            limit_wtu=37_500_000,
+            usage_usd=7.80,
+            limit_usd=75.00,
+            utilization_pct=10.4,
+            window_start_utc=cycle_start,
+            next_reset_utc=cycle_reset,
+            last_synced_at=now,
+        )
 
         # 1. Alice - Active heavy user under quota
         alice_tokens = {"gemini-3-pro": 2500000, "gemini-3.6-flash": 1500000}
@@ -47,6 +65,7 @@ class MockDatabase:
             custom_overage_usd=5.00,
             current_week=CurrentWeekUsage(
                 week_id=week_id,
+                window_start_utc=cycle_start,
                 total_tokens=4000000,
                 total_requests=320,
                 gross_spend_usd=6.15,
@@ -79,6 +98,7 @@ class MockDatabase:
             custom_overage_usd=None,
             current_week=CurrentWeekUsage(
                 week_id=week_id,
+                window_start_utc=cycle_start,
                 total_tokens=3800000,
                 total_requests=210,
                 gross_spend_usd=8.74,
@@ -111,6 +131,7 @@ class MockDatabase:
             custom_overage_usd=None,
             current_week=CurrentWeekUsage(
                 week_id=week_id,
+                window_start_utc=cycle_start,
                 total_tokens=6500000,
                 total_requests=480,
                 gross_spend_usd=14.95,
@@ -143,6 +164,7 @@ class MockDatabase:
             custom_overage_usd=None,
             current_week=CurrentWeekUsage(
                 week_id=week_id,
+                window_start_utc=cycle_start,
                 total_tokens=12000000,
                 total_requests=950,
                 gross_spend_usd=27.60,
@@ -174,6 +196,7 @@ class MockDatabase:
             custom_overage_usd=None,
             current_week=CurrentWeekUsage(
                 week_id=week_id,
+                window_start_utc=cycle_start,
                 total_tokens=120000,
                 total_requests=12,
                 gross_spend_usd=0.28,

@@ -13,6 +13,7 @@ import {
   Paper,
   Switch,
   TextField,
+  Tooltip,
   Typography,
   useTheme,
 } from '@mui/material';
@@ -26,6 +27,7 @@ import { AppConfig, User, UserUpdatePayload } from '../types';
 interface UserDrawerProps {
   user: User | null;
   config: AppConfig | null;
+  nextResetUtc?: string | null;
   open: boolean;
   onClose: () => void;
   onSave: (email: string, payload: UserUpdatePayload) => Promise<void>;
@@ -36,6 +38,7 @@ const MODEL_COLORS = ['#6366f1', '#10b981', '#f59e0b', '#3b82f6', '#ec4899', '#8
 export const UserDrawer: React.FC<UserDrawerProps> = ({
   user,
   config,
+  nextResetUtc,
   open,
   onClose,
   onSave,
@@ -187,21 +190,39 @@ export const UserDrawer: React.FC<UserDrawerProps> = ({
             <Typography variant="subtitle1" sx={{ color: isDark ? '#f9fafb' : '#0f172a', fontWeight: 600 }}>
               {user.email}
             </Typography>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.25 }}>
-              <Chip
-                label={user.status}
-                size="small"
-                sx={{
-                  height: 20,
-                  fontSize: '0.68rem',
-                  fontWeight: 600,
-                  backgroundColor:
-                    user.status === 'ACTIVE'
-                      ? isDark ? 'rgba(16, 185, 129, 0.15)' : 'rgba(16, 185, 129, 0.1)'
-                      : isDark ? 'rgba(239, 68, 68, 0.15)' : 'rgba(239, 68, 68, 0.1)',
-                  color: user.status === 'ACTIVE' ? '#10b981' : '#ef4444',
-                }}
-              />
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.25, flexWrap: 'wrap' }}>
+              <Tooltip
+                title={
+                  user.status === 'AUTO_DISABLED'
+                    ? nextResetUtc
+                      ? `Over weekly quota limit. Automatically re-enables at weekly pool reset: ${new Date(nextResetUtc).toUTCString()}`
+                      : 'Over weekly quota limit. Automatically re-enables on next credit pool reset.'
+                    : user.status === 'MANUALLY_DISABLED'
+                    ? 'Manually locked by administrator'
+                    : 'Active developer'
+                }
+                arrow
+              >
+                <Chip
+                  label={user.status}
+                  size="small"
+                  sx={{
+                    height: 20,
+                    fontSize: '0.68rem',
+                    fontWeight: 600,
+                    backgroundColor:
+                      user.status === 'ACTIVE'
+                        ? isDark ? 'rgba(16, 185, 129, 0.15)' : 'rgba(16, 185, 129, 0.1)'
+                        : isDark ? 'rgba(239, 68, 68, 0.15)' : 'rgba(239, 68, 68, 0.1)',
+                    color: user.status === 'ACTIVE' ? '#10b981' : '#ef4444',
+                  }}
+                />
+              </Tooltip>
+              {user.status === 'AUTO_DISABLED' && nextResetUtc && (
+                <Typography variant="caption" sx={{ color: '#ef4444', fontSize: '0.7rem', fontWeight: 600 }}>
+                  Re-enables: {new Date(nextResetUtc).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                </Typography>
+              )}
               {user.is_exempt && (
                 <Chip
                   label="Exempt"
@@ -240,7 +261,10 @@ export const UserDrawer: React.FC<UserDrawerProps> = ({
           }}
         >
           <AccountBalanceWalletIcon sx={{ fontSize: 16, color: '#6366f1' }} />
-          Financial & Quota Ledger ({currentUsage.week_id})
+          Financial & Quota Ledger ({currentUsage.week_id}
+          {currentUsage.window_start_utc
+            ? ` · Cycle started ${new Date(currentUsage.window_start_utc).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`
+            : ''})
         </Typography>
 
         <Grid container spacing={1.5} sx={{ mb: 3 }}>

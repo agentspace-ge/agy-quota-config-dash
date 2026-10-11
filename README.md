@@ -29,7 +29,7 @@
 - live organization-wide subscription metrics (Tier, Raw WTU, Contract USD, and Reset Countdown) are fetched from Google Cloud Monitoring with in-memory caching and Firestore fallback
 - an `hourly_quota_evaluator` (and on-demand **Publish & Sync**) performs automated group reconciliation
 - **auto-throttled** developers automatically unlock and return to `antigravity-enabled@` on the next hourly evaluation (or instantly upon clicking **Publish & Sync**) whenever an admin increases their quota or overage buffer
-- weekly usage resets automatically every Monday at 00:00 (configured timezone), resetting spend to $0 and auto-re-enabling throttled developers
+- weekly usage resets automatically in synchronization with the upstream Google Cloud Credit Pool start time (falls back to Monday 00:00 in configured timezone if telemetry is unavailable), resetting spend to $0 and auto-re-enabling throttled developers
 - **manually locked** developers are protected administrative holds that remain disabled across resets until an admin explicitly unlocks them
 
 **Features**
@@ -44,13 +44,13 @@
     * Developer overage tracks usage beyond their assigned quota target: `C_overage = max(0, C_gross - Q)` with configurable overage buffer (`O`).
     * Because Gemini Enterprise uses pooled project-level quotas, this metric reflects internal developer consumption exceeding assigned policy targets rather than external Google Cloud billing liability.
     * **Granular Token Telemetry & Precise Pricing**: Calculates gross spend directly from the exact token counts emitted in Antigravity inference logs (`metadata.promptTokenCount`, `metadata.candidatesTokenCount`, `metadata.cachedContentTokenCount`, and `metadata.thoughtsTokenCount`), mapping specific rates for prompt/input, generated output, cached context, and reasoning/thinking tokens (with fallback ratio modeling if only aggregate `totalTokenCount` is present).
-    * Timezone-aligned weekly windows (Monday 00:00:00 boundary) with historical snapshots archived to Firestore.
+    * Upstream Credit Pool-aligned weekly windows (synchronized with Cloud Monitoring quota window start, with Portal Display Timezone fallback) with historical snapshots archived to Firestore.
 3. **Dual-Group Cloud Identity State Machine**:
     * **`antigravity-enabled@`**: Bound to IAM role `roles/businessaicode.user`.
     * **`antigravity-disabled@`**: Zero IAM permissions (paused developers).
     * **Dynamic Auto-Unthrottle (Quota Expansion)**: If an `Auto-Throttled` developer's quota credits or overage buffer is increased so that $\text{Spend} < \text{Limit}$, the hourly evaluator (or clicking **Publish & Sync**) automatically restores their `ACTIVE` status and moves them back to `antigravity-enabled@` with zero manual group editing required.
-    * **Weekly Monday Auto-Reset**: Every Monday at 00:00 (configured enterprise timezone), weekly gross spend resets to `$0.00` and all `Auto-Throttled` developers are automatically re-enabled into `antigravity-enabled@`.
-    * **Administrative Lock Protection**: Distinguishes automated spend limits from `MANUALLY_DISABLED` (administrative locks that are protected from Monday resets and remain locked until explicitly unlocked by an admin).
+    * **Weekly Credit Pool Auto-Reset**: When the upstream Google Cloud Credit Pool resets (7-day window detected via Cloud Monitoring, or Monday 00:00 fallback), weekly gross spend resets to `$0.00` and all `Auto-Throttled` developers are automatically re-enabled into `antigravity-enabled@`.
+    * **Administrative Lock Protection**: Distinguishes automated spend limits from `MANUALLY_DISABLED` (administrative locks that are protected from weekly resets and remain locked until explicitly unlocked by an admin).
     * **Quota Exemption**: Supports `is_exempt` to bypass quota limits for leads/VIPs while retaining full usage analytics.
 4. **Developer Onboarding & Synthetic Discovery**:
     * **Synthetic Discovery**: Automatically discovers active developers from BigQuery inference logs and registers them with default weekly quota credits.

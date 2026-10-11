@@ -25,6 +25,20 @@ def test_get_user_detail(client):
     assert user["current_week"]["quota_credits_usd"] == 25.0
 
 
+def test_create_user_sets_window_start_utc(client):
+    payload = {
+        "email": "new.developer@example.com",
+        "is_exempt": False,
+        "has_custom_quota": False,
+    }
+    response = client.post("/api/users", json=payload)
+    assert response.status_code == 201
+    user = response.json()
+    assert user["email"] == "new.developer@example.com"
+    assert user["current_week"]["window_start_utc"] is not None
+    assert "week_id" in user["current_week"]
+
+
 def test_update_user_quota(client):
     payload = {
         "has_custom_quota": True,
@@ -108,3 +122,47 @@ def test_create_and_delete_user(client):
     # Verify deleted
     res_get2 = client.get(f"/api/users/{new_email}")
     assert res_get2.status_code == 404
+
+
+def test_kpis_handles_pool_client_exception(client):
+    """Verify /api/evaluator/kpis returns 200 even if pool_client raises exception."""
+    from unittest.mock import MagicMock
+    from app.api.deps import get_pool_client
+    from app.main import app
+
+    mock_pool = MagicMock()
+    mock_pool.get_pool_stats.side_effect = RuntimeError("Telemetry API unreachable")
+
+    app.dependency_overrides[get_pool_client] = lambda: mock_pool
+    try:
+        response = client.get("/api/evaluator/kpis")
+        assert response.status_code == 200
+        data = response.json()
+        assert "active_developers" in data
+    finally:
+        app.dependency_overrides.pop(get_pool_client, None)
+
+
+def test_create_user_handles_pool_client_exception(client):
+    """Verify /api/users succeeds and resolves fallback window even if pool_client raises exception."""
+    from unittest.mock import MagicMock
+    from app.api.deps import get_pool_client
+    from app.main import app
+
+    mock_pool = MagicMock()
+    mock_pool.get_pool_stats.side_effect = RuntimeError("Telemetry API unreachable")
+
+    app.dependency_overrides[get_pool_client] = lambda: mock_pool
+    try:
+        payload = {
+            "email": "resilient.user@example.com",
+            "is_exempt": False,
+            "has_custom_quota": False,
+        }
+        response = client.post("/api/users", json=payload)
+        assert response.status_code == 201
+        data = response.json()
+        assert data["email"] == "resilient.user@example.com"
+        assert data["current_week"]["window_start_utc"] is not None
+    finally:
+        app.dependency_overrides.pop(get_pool_client, None)

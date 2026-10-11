@@ -82,6 +82,17 @@ def main():
     except Exception as err:
         print(f"⚠️ Publish evaluation request failed: {err}")
 
+    # 4. Check Credit Pool Status
+    try:
+        r = client.get(f"{base_url}/api/evaluator/kpis")
+        if r.status_code == 200:
+            kpis = r.json()
+            pool = kpis.get("credit_pool")
+            if pool:
+                print(f"📊 Credit Pool: {pool.get('tier_name')} (Resets: {pool.get('next_reset_utc')})")
+    except Exception:
+        pass
+
     print(f"\n🎉 Done! View the dashboard at: {base_url}\n")
 
 

@@ -233,3 +233,210 @@ def test_evaluator_email_case_insensitivity(evaluator, mock_db, mock_bq):
     all_users = mock_db.list_users()
     alice_matches = [u for u in all_users if u.email.lower().strip() == "alice.chen@example.com"]
     assert len(alice_matches) == 1
+
+
+def test_evaluator_uses_pool_window_start_time(mock_db, mock_bq, mock_identity):
+    """Verify evaluator queries BigQuery using pool_client window_start_utc."""
+    from unittest.mock import MagicMock
+    from app.core.evaluator import QuotaEvaluator
+    from app.db.models import CreditPoolStats
+    from datetime import UTC, datetime, timedelta
+
+    start_pool = datetime(2026, 10, 11, 13, 6, 56, tzinfo=UTC)
+    reset_pool = start_pool + timedelta(days=7)
+
+    mock_pool = MagicMock()
+    mock_pool.get_pool_stats.return_value = CreditPoolStats(
+        window_start_utc=start_pool,
+        next_reset_utc=reset_pool,
+    )
+
+    evaluator = QuotaEvaluator(
+        db_client=mock_db,
+        bq_client=mock_bq,
+        identity_client=mock_identity,
+        pool_client=mock_pool,
+    )
+
+    result = evaluator.run_evaluation(triggered_by="test_pool")
+    assert result.success is True
+    # Confirm BigQuery fetch was called with start_pool
+    assert mock_bq.last_query_start == start_pool
+
+
+def test_evaluator_pool_reset_advancement(mock_db, mock_bq, mock_identity):
+    """Verify that when window_start_utc advances 7 days, snapshots are saved and throttled users are re-enabled."""
+    from unittest.mock import MagicMock
+    from app.core.evaluator import QuotaEvaluator
+    from app.db.models import CreditPoolStats
+    from datetime import UTC, datetime, timedelta
+
+    t0 = datetime(2026, 10, 4, 13, 6, 56, tzinfo=UTC)
+    t1 = t0 + timedelta(days=7)
+
+    # Seed throttled user in cycle t0
+    user = User(
+        email="pool.throttled@example.com",
+        status=UserStatus.AUTO_DISABLED,
+        current_week=CurrentWeekUsage(
+            week_id="2026-W40",
+            window_start_utc=t0,
+            total_tokens=5000000,
+            gross_spend_usd=12.00,
+            quota_credits_usd=10.00,
+            net_billable_cost_usd=2.00,
+        ),
+    )
+    mock_db.save_user(user)
+    mock_identity.add_member_to_group(mock_identity.disabled_group_email, user.email)
+
+    # Now upstream pool advances to t1
+    mock_pool = MagicMock()
+    mock_pool.get_pool_stats.return_value = CreditPoolStats(
+        window_start_utc=t1,
+        next_reset_utc=t1 + timedelta(days=7),
+    )
+    mock_bq.set_custom_records([])
+
+    evaluator = QuotaEvaluator(
+        db_client=mock_db,
+        bq_client=mock_bq,
+        identity_client=mock_identity,
+        pool_client=mock_pool,
+    )
+
+    result = evaluator.run_evaluation(triggered_by="pool_advancement", is_publish=True)
+    assert result.success is True
+
+    # 1. Snapshot was saved for previous cycle
+    snapshots = mock_db.list_weekly_snapshots("pool.throttled@example.com")
+    assert len(snapshots) == 1
+    assert snapshots[0].final_gross_cost_usd == 12.00
+
+    # 2. User re-enabled to ACTIVE and spend reset
+    updated = mock_db.get_user("pool.throttled@example.com")
+    assert updated.status == UserStatus.ACTIVE
+    assert updated.current_week.gross_spend_usd == 0.00
+    assert updated.current_week.window_start_utc == t1
+
+    # 3. Cloud identity group membership swapped
+    assert mock_identity.is_user_in_enabled_group("pool.throttled@example.com") is True
+    assert mock_identity.is_user_in_disabled_group("pool.throttled@example.com") is False
+
+
+def test_evaluator_no_reset_when_pool_window_has_not_advanced(mock_db, mock_bq, mock_identity):
+    """Verify that multiple evaluations during the same pool cycle do not reset spend or create extra snapshots."""
+    from unittest.mock import MagicMock
+    from app.core.evaluator import QuotaEvaluator
+    from app.db.models import CreditPoolStats
+    from datetime import UTC, datetime, timedelta
+
+    t0 = datetime(2026, 10, 11, 13, 6, 56, tzinfo=UTC)
+
+    # User in cycle t0
+    user = User(
+        email="same.cycle@example.com",
+        status=UserStatus.ACTIVE,
+        current_week=CurrentWeekUsage(
+            week_id="2026-W41",
+            window_start_utc=t0,
+            total_tokens=1000000,
+            gross_spend_usd=5.00,
+            quota_credits_usd=10.00,
+        ),
+    )
+    mock_db.save_user(user)
+
+    mock_pool = MagicMock()
+    mock_pool.get_pool_stats.return_value = CreditPoolStats(
+        window_start_utc=t0,
+        next_reset_utc=t0 + timedelta(days=7),
+    )
+
+    evaluator = QuotaEvaluator(
+        db_client=mock_db,
+        bq_client=mock_bq,
+        identity_client=mock_identity,
+        pool_client=mock_pool,
+    )
+
+    result = evaluator.run_evaluation(triggered_by="hourly_check")
+    assert result.success is True
+
+    # No snapshot created
+    snapshots = mock_db.list_weekly_snapshots("same.cycle@example.com")
+    assert len(snapshots) == 0
+
+    # User retains cycle t0
+    updated = mock_db.get_user("same.cycle@example.com")
+    assert updated.current_week.window_start_utc == t0
+
+
+def test_evaluator_smooth_cutover_initial_run(mock_db, mock_bq, mock_identity):
+    """Verify existing user with window_start_utc=None adopts the pool window without premature reset."""
+    from unittest.mock import MagicMock
+    from app.core.evaluator import QuotaEvaluator
+    from app.db.models import CreditPoolStats
+    from datetime import UTC, datetime, timedelta
+
+    t0 = datetime(2026, 10, 11, 13, 6, 56, tzinfo=UTC)
+
+    # Existing user in same week but without window_start_utc field
+    user = User(
+        email="existing.legacy@example.com",
+        status=UserStatus.ACTIVE,
+        current_week=CurrentWeekUsage(
+            week_id="2026-W41",
+            window_start_utc=None,
+            total_tokens=2000000,
+            gross_spend_usd=6.00,
+            quota_credits_usd=10.00,
+        ),
+    )
+    mock_db.save_user(user)
+
+    mock_pool = MagicMock()
+    mock_pool.get_pool_stats.return_value = CreditPoolStats(
+        window_start_utc=t0,
+        next_reset_utc=t0 + timedelta(days=7),
+    )
+
+    evaluator = QuotaEvaluator(
+        db_client=mock_db,
+        bq_client=mock_bq,
+        identity_client=mock_identity,
+        pool_client=mock_pool,
+    )
+
+    result = evaluator.run_evaluation(triggered_by="migration_run")
+    assert result.success is True
+
+    # No snapshot should have been created
+    snapshots = mock_db.list_weekly_snapshots("existing.legacy@example.com")
+    assert len(snapshots) == 0
+
+    # User now has window_start_utc attached
+    updated = mock_db.get_user("existing.legacy@example.com")
+    assert updated.current_week.window_start_utc == t0
+
+
+def test_evaluator_pool_client_exception_fallback(mock_db, mock_bq, mock_identity):
+    """Verify evaluator handles pool_client exceptions gracefully and falls back to calendar week."""
+    from unittest.mock import MagicMock
+    from app.core.evaluator import QuotaEvaluator
+
+    mock_pool = MagicMock()
+    mock_pool.get_pool_stats.side_effect = RuntimeError("Cloud Monitoring API 503")
+
+    evaluator = QuotaEvaluator(
+        db_client=mock_db,
+        bq_client=mock_bq,
+        identity_client=mock_identity,
+        pool_client=mock_pool,
+    )
+
+    result = evaluator.run_evaluation(triggered_by="offline_test")
+    assert result.success is True
+    # Evaluator ran successfully despite pool client error
+    assert result.users_evaluated > 0
+

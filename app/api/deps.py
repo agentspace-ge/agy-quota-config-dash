@@ -92,17 +92,6 @@ def get_identity():
     return _identity_instance
 
 
-def get_evaluator() -> QuotaEvaluator:
-    global _evaluator_instance
-    if _evaluator_instance is None:
-        _evaluator_instance = QuotaEvaluator(
-            db_client=get_db(),
-            bq_client=get_bq(),
-            identity_client=get_identity(),
-        )
-    return _evaluator_instance
-
-
 def get_pool_client():
     global _pool_client_instance
     if _pool_client_instance is None:
@@ -121,4 +110,16 @@ def get_pool_client():
                 cache_ttl_seconds=getattr(settings, "MONITORING_CACHE_TTL_SECONDS", 300),
             )
     return _pool_client_instance
+
+
+def get_evaluator() -> QuotaEvaluator:
+    global _evaluator_instance
+    if _evaluator_instance is None:
+        _evaluator_instance = QuotaEvaluator(
+            db_client=get_db(),
+            bq_client=get_bq(),
+            identity_client=get_identity(),
+            pool_client=get_pool_client(),
+        )
+    return _evaluator_instance
 

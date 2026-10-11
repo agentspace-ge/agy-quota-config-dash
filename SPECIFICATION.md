@@ -144,7 +144,7 @@ sequenceDiagram
 
     alt Hourly Cron OR Publish Triggered
         Worker->>FS: Load App Config, Timezone & Model Pricing Matrix
-        Worker->>BQ: Run Weekly Token Aggregation Query (Monday 00:00 to Now)
+        Worker->>BQ: Run Weekly Token Aggregation Query (Credit Pool Window Start to Now)
         Worker->>FS: Update User Token Counts, Gross Cost, Net Spend
         Worker->>Worker: Evaluate Status (Active, Auto-Disabled, Manually Disabled, Exempt)
         Worker->>CI: Batch reconcile memberships in Enabled vs Disabled Groups
@@ -186,7 +186,7 @@ stateDiagram-v2
         [*] --> ThrottledInDisabledGroup : Incurred Net Overages
     }
 
-    AUTO_DISABLED --> ACTIVE : Monday Midnight Auto-Reset (Gross Spend resets to $0)
+    AUTO_DISABLED --> ACTIVE : Weekly Credit Pool Auto-Reset (Gross Spend resets to $0)
     AUTO_DISABLED --> ACTIVE : Admin increases Quota Credits & Publishes
     
     ACTIVE --> MANUALLY_DISABLED : Admin toggles "Disable Access" in UI
@@ -199,11 +199,11 @@ stateDiagram-v2
 
 ### 4.3 State Matrix & Evaluator Action Rules
 
-| State / Flag | Group Location | Evaluator Action on Quota Breach | Monday 00:00 Reset Behavior |
+| State / Flag | Group Location | Evaluator Action on Quota Breach | Weekly Pool Reset Behavior |
 | :--- | :--- | :--- | :--- |
 | **`ACTIVE`** (`is_exempt: false`) | `antigravity-enabled@` | If `C_gross >= Q + O`: Move to `antigravity-disabled@`, set state to `AUTO_DISABLED`. | Reset weekly gross token spend to `$0.00`. Credit balance resets to `Q`. Remain in `antigravity-enabled@`. |
 | **`AUTO_DISABLED`** | `antigravity-disabled@` | User is throttled. If Admin increases `Q` such that `C_gross < Q + O`: Move to `antigravity-enabled@`, set state to `ACTIVE`. | **Auto-Re-enable**: Move user back to `antigravity-enabled@`, set state to `ACTIVE`. |
-| **`MANUALLY_DISABLED`** | `antigravity-disabled@` | Manual lock. Evaluator never modifies group. | **Protected**: Ignored by Monday reset. User remains in `antigravity-disabled@`. |
+| **`MANUALLY_DISABLED`** | `antigravity-disabled@` | Manual lock. Evaluator never modifies group. | **Protected**: Ignored by weekly pool reset. User remains in `antigravity-disabled@`. |
 | **`is_exempt: true`** | `antigravity-enabled@` | Quota checks bypassed. Usage is tracked and displayed, but user is never throttled. | Reset weekly counters. User remains in `antigravity-enabled@`. |
 
 ### 4.4 Automated Cloud Identity Group Provisioning (Terraform)
@@ -308,10 +308,11 @@ To eliminate manual directory setup, group creation and permission delegation ar
 
 ## 6. Timezone & Weekly Boundary Engine
 
-### 6.1 Timezone Normalization
-* The application stores a single global **App Timezone** (e.g. `America/Los_Angeles`, `America/New_York`, or `UTC`).
-* **Weekly Window**: Begins strictly at **Monday 00:00:00** and ends at **Sunday 23:59:59** in the configured application timezone.
-* All developers across all global regions are measured against this unified weekly budget boundary.
+### 6.1 Credit Pool Window Alignment & Timezone Normalization
+* **Upstream Synchronization**: Weekly usage and quota evaluation windows align with the upstream Google Cloud Credit Pool start timestamp (`window_start_utc` from Cloud Monitoring `ratev2` quota telemetry).
+* **7-Day Dynamic Cycle**: The quota evaluation window runs for 7 days ($T_{\text{next\_reset}} = T_{\text{window\_start}} + 7 \text{ days}$).
+* **Monotonic Reset Guard**: The evaluator only triggers a cycle rollover when a new `window_start_utc` is at least 5 days newer than the previous cycle, preventing mid-week churn or calendar day mismatch.
+* **Portal Display Timezone**: The application stores a configurable timezone (e.g. `America/Los_Angeles`, `America/New_York`, or `UTC`). It formats user interface timestamps and serves as a deterministic fallback (Monday 00:00:00 to Sunday 23:59:59) if upstream Cloud Monitoring metrics are unavailable.
 
 ### 6.2 Date-Sharded Log Export & Consolidated BigQuery View
 
@@ -361,7 +362,7 @@ Key telemetry fields parsed by the evaluator:
 
 ```sql
 -- Parametrized BigQuery Usage Aggregation
--- @start_timestamp_utc and @end_timestamp_utc are calculated from App Timezone (Monday 00:00 to Now)
+-- @start_timestamp_utc and @end_timestamp_utc are calculated from Credit Pool Window (window_start_utc to Now)
 WITH raw_events AS (
   SELECT
     timestamp,
@@ -475,6 +476,7 @@ erDiagram
   "custom_overage_usd": 5.00,
   "current_week": {
     "week_id": "2026-W35",
+    "window_start_utc": "2026-08-24T15:17:05Z",
     "total_tokens": 3450000,
     "total_requests": 240,
     "gross_spend_usd": 14.85,

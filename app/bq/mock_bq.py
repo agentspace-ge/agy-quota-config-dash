@@ -10,18 +10,24 @@ class MockBigQueryUsageClient:
 
     def __init__(self):
         self._custom_records: list[UserUsageRecord] | None = None
+        self.last_query_start: datetime | None = None
+        self.last_query_end: datetime | None = None
 
     def set_custom_records(self, records: list[UserUsageRecord]):
         self._custom_records = records
 
     def reset(self):
         self._custom_records = None
+        self.last_query_start = None
+        self.last_query_end = None
 
     def fetch_weekly_usage(
         self,
         start_utc: datetime,
         end_utc: datetime,
     ) -> list[UserUsageRecord]:
+        self.last_query_start = start_utc
+        self.last_query_end = end_utc
         if self._custom_records is not None:
             return self._custom_records
 

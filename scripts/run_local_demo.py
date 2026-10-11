@@ -9,9 +9,9 @@ os.environ["USE_MOCK_SERVICES"] = "true"
 
 import uvicorn
 
-from app.api.deps import get_bq, get_db, get_identity
+from app.api.deps import get_bq, get_db, get_identity, get_pool_client
 from app.bq.bq_client import UserUsageRecord
-from app.core.timezone_engine import get_current_week_window
+from app.core.timezone_engine import get_current_week_window, resolve_pool_window
 from app.db.models import (
     AuditEvent,
     CurrentWeekUsage,
@@ -27,6 +27,7 @@ def seed_three_demo_users():
     db = get_db()
     bq = get_bq()
     identity = get_identity()
+    pool_client = get_pool_client()
 
     # Clear existing state
     with db._lock:
@@ -35,7 +36,9 @@ def seed_three_demo_users():
 
     now = datetime.now(UTC)
     config = db.get_config()
-    week_id, _, _, _ = get_current_week_window(config.timezone, now)
+    stats = pool_client.get_pool_stats(force_refresh=True)
+    week_id, window_start_utc, next_reset_utc, _ = resolve_pool_window(stats, config.timezone, now)
+    db.save_credit_pool(stats)
 
     # 1. Alice - Active, healthy consumption ($4.20 / $10.00)
     user_alice = User(
@@ -45,6 +48,7 @@ def seed_three_demo_users():
         has_custom_quota=False,
         current_week=CurrentWeekUsage(
             week_id=week_id,
+            window_start_utc=window_start_utc,
             total_tokens=2500000,
             total_requests=180,
             gross_spend_usd=4.20,
@@ -74,6 +78,7 @@ def seed_three_demo_users():
         has_custom_quota=False,
         current_week=CurrentWeekUsage(
             week_id=week_id,
+            window_start_utc=window_start_utc,
             total_tokens=4200000,
             total_requests=290,
             gross_spend_usd=8.50,
@@ -103,6 +108,7 @@ def seed_three_demo_users():
         has_custom_quota=False,
         current_week=CurrentWeekUsage(
             week_id=week_id,
+            window_start_utc=window_start_utc,
             total_tokens=6800000,
             total_requests=520,
             gross_spend_usd=13.40,

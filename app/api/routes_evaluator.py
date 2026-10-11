@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Depends
 
 from app.api.deps import get_db, get_evaluator, get_pool_client
-from app.core.timezone_engine import get_current_week_window
+from app.core.timezone_engine import resolve_pool_window
 from app.db.models import EvaluationResult, KPIStats, UserStatus
 
 router = APIRouter(prefix="/api/evaluator", tags=["Evaluator"])
@@ -32,7 +32,20 @@ def run_evaluation_manual(evaluator=Depends(get_evaluator)):
 def get_kpi_stats(db=Depends(get_db), pool_client=Depends(get_pool_client)):
     users = db.list_users()
     config = db.get_config()
-    week_id, _, _, _ = get_current_week_window(config.timezone)
+
+    # Fetch cached or live Google Cloud subscription pool stats
+    pool_stats = None
+    try:
+        pool_stats = pool_client.get_pool_stats()
+    except Exception:
+        pass
+    if pool_stats is None:
+        try:
+            pool_stats = db.get_credit_pool()
+        except Exception:
+            pass
+
+    week_id, _, _, _ = resolve_pool_window(pool_stats, config.timezone)
 
     active_count = sum(1 for u in users if u.status == UserStatus.ACTIVE and not u.is_exempt)
     throttled_count = sum(1 for u in users if u.status == UserStatus.AUTO_DISABLED)
@@ -43,13 +56,6 @@ def get_kpi_stats(db=Depends(get_db), pool_client=Depends(get_pool_client)):
     total_gross = sum(u.current_week.gross_spend_usd for u in users)
     total_credits = sum(u.current_week.quota_credits_usd for u in users)
     total_net = sum(u.current_week.net_billable_cost_usd for u in users)
-
-    # Fetch cached or live Google Cloud subscription pool stats
-    pool_stats = None
-    try:
-        pool_stats = pool_client.get_pool_stats()
-    except Exception:
-        pass
 
     return KPIStats(
         active_developers=active_count,

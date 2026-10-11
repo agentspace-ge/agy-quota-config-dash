@@ -117,6 +117,7 @@ class CurrentWeekUsage(BaseModel):
     spend_by_model: dict[str, float] = Field(default_factory=dict)
     credit_utilization_percentage: float = 0.0
     last_active: datetime | None = None
+    window_start_utc: datetime | None = None
 
 
 class WeeklySnapshot(BaseModel):
