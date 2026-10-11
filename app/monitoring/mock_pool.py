@@ -40,3 +40,9 @@ class MockCloudMonitoringPoolClient:
             self.db_client.save_credit_pool(stats)
 
         return stats
+
+    def set_mock_stats(self, stats: CreditPoolStats):
+        self._cached_stats = stats
+        if self.db_client:
+            self.db_client.save_credit_pool(stats)
+

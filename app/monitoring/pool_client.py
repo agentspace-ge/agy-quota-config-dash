@@ -169,7 +169,9 @@ class CloudMonitoringPoolClient:
         return fallback_limit
 
     def _query_window_timestamps(self, metric_base: str) -> tuple[datetime, datetime]:
-        start_dt, end_dt = self._get_midnight_pacific_utc()
+        now = datetime.now(UTC)
+        start_str = (now - timedelta(days=8)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        end_str = now.strftime("%Y-%m-%dT%H:%M:%SZ")
         filter_expr = (
             f'metric.type = "discoveryengine.googleapis.com/quota/ratev2/{metric_base}/net_usage" AND '
             f'resource.type = "discoveryengine.googleapis.com/Location" AND '
@@ -177,8 +179,8 @@ class CloudMonitoringPoolClient:
         )
         params = {
             "filter": filter_expr,
-            "interval.startTime": start_dt.strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "interval.endTime": end_dt.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "interval.startTime": start_str,
+            "interval.endTime": end_str,
         }
 
         series_list = self._execute_query(params)
@@ -191,6 +193,7 @@ class CloudMonitoringPoolClient:
         if latest_start_sec > 0:
             start_time_dt = datetime.fromtimestamp(latest_start_sec, tz=UTC)
         else:
+            start_dt, _ = self._get_midnight_pacific_utc()
             start_time_dt = start_dt
 
         return start_time_dt, start_time_dt + timedelta(days=7)

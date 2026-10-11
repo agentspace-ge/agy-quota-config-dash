@@ -209,7 +209,9 @@ def query_window_timestamps(
     project_id: str, token: str, metric_base: str, location: str
 ) -> tuple[datetime, datetime]:
   """Retrieves the active window_start_time label and derives the next reset time (+7d)."""
-  start_dt, end_dt = get_midnight_pacific_utc()
+  now = datetime.now(timezone.utc)
+  start_str = (now - timedelta(days=8)).strftime("%Y-%m-%dT%H:%M:%SZ")
+  end_str = now.strftime("%Y-%m-%dT%H:%M:%SZ")
 
   filter_expr = (
       f'metric.type = "discoveryengine.googleapis.com/quota/ratev2/{metric_base}/net_usage" AND '
@@ -219,8 +221,8 @@ def query_window_timestamps(
 
   params = [
       ("filter", filter_expr),
-      ("interval.startTime", start_dt.strftime("%Y-%m-%dT%H:%M:%SZ")),
-      ("interval.endTime", end_dt.strftime("%Y-%m-%dT%H:%M:%SZ")),
+      ("interval.startTime", start_str),
+      ("interval.endTime", end_str),
   ]
 
   series_list = _execute_monitoring_query(project_id, token, params)
@@ -233,14 +235,21 @@ def query_window_timestamps(
   if latest_start_sec > 0:
     start_time_dt = datetime.fromtimestamp(latest_start_sec, tz=timezone.utc)
   else:
+    start_dt, _ = get_midnight_pacific_utc()
     start_time_dt = start_dt
 
   return start_time_dt, start_time_dt + timedelta(days=7)
 
 
 def main():
+  import argparse
+  parser = argparse.ArgumentParser(description="Validates Antigravity Weekly Quota matching Cloud Console QuotaFetcherService.")
+  parser.add_argument("project_id", nargs="?", default="", help="GCP Project ID (defaults to gcloud active project)")
+  parser.add_argument("--sync-firestore", "--save", dest="sync_firestore", action="store_true", help="Synchronize active CreditPoolStats to Firestore (config/credit_pool)")
+  args = parser.parse_args()
+
   default_project = get_default_project_id()
-  project_id = sys.argv[1] if len(sys.argv) > 1 else (default_project or "ge-ent-app-demo")
+  project_id = args.project_id or (default_project or "ge-ent-app-demo")
   location = "global"
 
   token = get_token()
@@ -280,6 +289,28 @@ def main():
   print(f"• Next Weekly Credit Pool Reset Time (UTC)    : {reset_str}")
   print("=" * 60)
 
+  if args.sync_firestore:
+    try:
+      from google.cloud import firestore
+      fs = firestore.Client(project=project_id)
+      doc_data = {
+          "tier_key": tier_key,
+          "tier_name": tier_display_name,
+          "usage_wtu": usage_wtu,
+          "limit_wtu": limit_wtu,
+          "usage_usd": usage_usd,
+          "limit_usd": limit_usd,
+          "utilization_pct": pct,
+          "window_start_utc": start_dt,
+          "next_reset_utc": reset_dt,
+          "last_synced_at": datetime.now(timezone.utc),
+      }
+      fs.collection("config").document("credit_pool").set(doc_data)
+      print("✓ Successfully synchronized CreditPoolStats to Firestore (config/credit_pool)")
+    except Exception as e:
+      print(f"✗ Failed to sync to Firestore: {e}", file=sys.stderr)
+
 
 if __name__ == "__main__":
   main()
+
