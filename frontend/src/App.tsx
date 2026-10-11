@@ -396,6 +396,7 @@ export const App: React.FC = () => {
           <KPISummary kpis={kpis} loading={loading} />
           <UserTable
             users={users}
+            nextResetUtc={kpis?.credit_pool?.next_reset_utc}
             onSelectUser={handleSelectUser}
             onToggleLock={handleToggleLock}
             onToggleExempt={handleToggleExempt}
@@ -407,6 +408,7 @@ export const App: React.FC = () => {
         <UserDrawer
           user={selectedUser}
           config={config}
+          nextResetUtc={kpis?.credit_pool?.next_reset_utc}
           open={drawerOpen}
           onClose={() => setDrawerOpen(false)}
           onSave={handleSaveUser}

@@ -35,6 +35,7 @@ import { User } from '../types';
 
 interface UserTableProps {
   users: User[];
+  nextResetUtc?: string | null;
   onSelectUser: (user: User) => void;
   onToggleLock: (email: string) => void;
   onToggleExempt: (user: User) => void;
@@ -43,6 +44,7 @@ interface UserTableProps {
 
 export const UserTable: React.FC<UserTableProps> = ({
   users,
+  nextResetUtc,
   onSelectUser,
   onToggleLock,
   onToggleExempt,
@@ -138,19 +140,24 @@ export const UserTable: React.FC<UserTableProps> = ({
       );
     }
     if (user.status === 'AUTO_DISABLED') {
+      const tooltipMsg = nextResetUtc
+        ? `Over weekly quota limit. Automatically re-enables at weekly pool reset: ${new Date(nextResetUtc).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`
+        : 'Over weekly quota limit. Automatically re-enables on next credit pool reset.';
       return (
-        <Chip
-          label="Auto-Throttled"
-          size="small"
-          sx={{
-            backgroundColor: isDark ? 'rgba(239, 68, 68, 0.15)' : 'rgba(239, 68, 68, 0.1)',
-            color: isDark ? '#f87171' : '#dc2626',
-            border: `1px solid ${isDark ? 'rgba(239, 68, 68, 0.3)' : 'rgba(239, 68, 68, 0.25)'}`,
-            fontWeight: 600,
-            fontSize: '0.72rem',
-            height: 22,
-          }}
-        />
+        <Tooltip title={tooltipMsg} arrow>
+          <Chip
+            label="Auto-Throttled"
+            size="small"
+            sx={{
+              backgroundColor: isDark ? 'rgba(239, 68, 68, 0.15)' : 'rgba(239, 68, 68, 0.1)',
+              color: isDark ? '#f87171' : '#dc2626',
+              border: `1px solid ${isDark ? 'rgba(239, 68, 68, 0.3)' : 'rgba(239, 68, 68, 0.25)'}`,
+              fontWeight: 600,
+              fontSize: '0.72rem',
+              height: 22,
+            }}
+          />
+        </Tooltip>
       );
     }
     if (user.current_week.credit_utilization_percentage >= 80) {

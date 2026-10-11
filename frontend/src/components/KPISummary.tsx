@@ -315,31 +315,45 @@ export const KPISummary: React.FC<KPISummaryProps> = ({ kpis }) => {
               </Box>
             </Box>
 
-            {/* Reset Countdown Badge & Exact Time */}
-            <Stack direction="row" spacing={1.25} alignItems="center">
-              <Chip
-                icon={<AccessTimeOutlinedIcon sx={{ fontSize: '15px !important', color: '#38bdf8 !important' }} />}
-                label={countdown ? `Weekly Pool Resets in: ${countdown}` : 'Weekly Pool Reset'}
-                size="small"
-                sx={{
-                  fontWeight: 600,
-                  fontSize: '0.74rem',
-                  backgroundColor: isDark ? 'rgba(56, 189, 248, 0.12)' : 'rgba(14, 165, 233, 0.1)',
-                  color: isDark ? '#38bdf8' : '#0284c7',
-                  border: isDark ? '1px solid rgba(56, 189, 248, 0.3)' : '1px solid rgba(14, 165, 233, 0.25)',
-                }}
-              />
+            {/* Pool Cycle Range & Reset Countdown Badge */}
+            <Stack direction="column" spacing={0.5} alignItems={{ xs: 'flex-start', sm: 'flex-end' }}>
+              <Stack direction="row" spacing={1.25} alignItems="center" flexWrap="wrap">
+                <Chip
+                  icon={<AccessTimeOutlinedIcon sx={{ fontSize: '15px !important', color: '#38bdf8 !important' }} />}
+                  label={countdown ? `Weekly Pool Resets in: ${countdown}` : 'Weekly Pool Reset'}
+                  size="small"
+                  sx={{
+                    fontWeight: 600,
+                    fontSize: '0.74rem',
+                    backgroundColor: isDark ? 'rgba(56, 189, 248, 0.12)' : 'rgba(14, 165, 233, 0.1)',
+                    color: isDark ? '#38bdf8' : '#0284c7',
+                    border: isDark ? '1px solid rgba(56, 189, 248, 0.3)' : '1px solid rgba(14, 165, 233, 0.25)',
+                  }}
+                />
 
-              {pool.next_reset_utc && (
+                {pool.next_reset_utc && (
+                  <Typography
+                    variant="caption"
+                    sx={{
+                      color: isDark ? '#94a3b8' : '#64748b',
+                      fontSize: '0.74rem',
+                      fontFamily: '"Inter", -apple-system, sans-serif',
+                    }}
+                  >
+                    Resets: {formatResetTimestamp(pool.next_reset_utc)}
+                  </Typography>
+                )}
+              </Stack>
+              {pool.window_start_utc && (
                 <Typography
                   variant="caption"
                   sx={{
-                    color: isDark ? '#94a3b8' : '#64748b',
-                    fontSize: '0.74rem',
+                    color: isDark ? '#64748b' : '#94a3b8',
+                    fontSize: '0.7rem',
                     fontFamily: '"Inter", -apple-system, sans-serif',
                   }}
                 >
-                  {formatResetTimestamp(pool.next_reset_utc)}
+                  Cycle Started: {formatResetTimestamp(pool.window_start_utc)}
                 </Typography>
               )}
             </Stack>

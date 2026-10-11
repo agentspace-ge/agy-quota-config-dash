@@ -8,6 +8,7 @@ export interface SpendBreakdown {
 
 export interface CurrentWeekUsage {
   week_id: string;
+  window_start_utc?: string | null;
   total_tokens: number;
   total_requests: number;
   gross_spend_usd: number;

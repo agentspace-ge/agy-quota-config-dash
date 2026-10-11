@@ -88,15 +88,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         <Grid container spacing={2.5}>
           <Grid item xs={12}>
             <Typography variant="caption" sx={{ color: '#5f6368', fontWeight: 600 }}>
-              TIMEZONE & BUDGET BOUNDARY
+              PORTAL TIMEZONE & DISPLAY
             </Typography>
             <TextField
               select
               fullWidth
               size="small"
-              label="Application Timezone (Monday 00:00 Reset)"
+              label="Portal Display Timezone"
               value={timezone}
               onChange={(e) => setTimezone(e.target.value)}
+              helperText="Formats portal date displays. Quota resets synchronize with upstream GCP Credit Pool start time (falls back to Monday 00:00 in this timezone if pool metrics are unavailable)."
               sx={{ mt: 1 }}
             >
               {COMMON_TIMEZONES.map((tz) => (
