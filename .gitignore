@@ -2,6 +2,7 @@
 .scratch/
 .scratch
 scratch/
+.superpowers/
 
 # Python
 __pycache__/

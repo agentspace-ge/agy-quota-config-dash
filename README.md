@@ -21,14 +21,15 @@
 - Gemini Enterprise manages subscription quota as a shared organization-wide pool per GCP project and does not provide native per-developer quota limits or self-service throttling.
 
 **What this is not**
-- **Not a direct quota limit mutator**: This project reads upstream subscription quota metrics from Google Cloud Monitoring, but does not modify Google's internal project quota limits. Instead, it **governs developer access** to the pooled quota by dynamically managing membership in Cloud Identity groups (`antigravity-enabled@` vs `antigravity-disabled@`).
+**What this is not**
+- **Not a direct quota limit mutator**: This project reads upstream subscription quota metrics from Google Cloud Monitoring, but does not modify Google's internal project quota limits. Instead, it **governs developer access** to the pooled quota by dynamically managing membership in Cloud Identity IAM gatekeeper groups (`antigravity-active@` vs `antigravity-throttled@`).
 - **Not a GCP billing or invoicing engine**: Because Gemini Enterprise pools quota across the entire GCP project, an individual developer exceeding their credit allowance does not necessarily trigger external Google Cloud billing if total project consumption remains within its pooled entitlement.
 
 **How it works**
-- developers are added and removed from Cloud Identity groups (`antigravity-enabled@` and `antigravity-disabled@`) to enable and disable access for Antigravity Quota usage
+- developers are added and removed from IAM Gatekeeper groups (`antigravity-active@` and `antigravity-throttled@`) to enable and disable access for Antigravity Quota usage
 - live organization-wide subscription metrics (Tier, Raw WTU, Contract USD, and Reset Countdown) are fetched from Google Cloud Monitoring with in-memory caching and Firestore fallback
 - an `hourly_quota_evaluator` (and on-demand **Publish & Sync**) performs automated group reconciliation
-- **auto-throttled** developers automatically unlock and return to `antigravity-enabled@` on the next hourly evaluation (or instantly upon clicking **Publish & Sync**) whenever an admin increases their quota or overage buffer
+- **auto-throttled** developers automatically unlock and return to `antigravity-active@` on the next hourly evaluation (or instantly upon clicking **Publish & Sync**) whenever an admin increases their quota or overage buffer
 - weekly usage resets automatically in synchronization with the upstream Google Cloud Credit Pool start time (falls back to Monday 00:00 in configured timezone if telemetry is unavailable), resetting spend to $0 and auto-re-enabling throttled developers
 - **manually locked** developers are protected administrative holds that remain disabled across resets until an admin explicitly unlocks them
 
@@ -39,34 +40,42 @@
     * **Dual WTU & USD Metrics**: Visualizes raw token usage (Workload Token Units) alongside contract dollar limits ($2.00 per 1M WTU) with multi-stage progress bars and utilization percentages.
     * **Upstream Reset Countdown**: Tracks the official Google Cloud reset window (`window_start_time`), displaying live countdowns (`Weekly Pool Resets in: Xd Xh`) alongside exact UTC and localized timestamps matching the Google Cloud Console.
     * **In-Memory TTL Cache & Resilient Firestore Fallback**: 300-second in-memory caching prevents API rate limits; automatically writes to and falls back on Firestore document `config/credit_pool` during transient network or API disruptions.
-2. **FinOps Credit & Developer Overage Model**:
+2. **Quota Management Groups & 3-Tier Policy Inheritance**:
+    * **Enterprise Scale**: Designed for organizations with 15,000+ Gemini Enterprise licenses where updating quotas per user is impractical.
+    * **Built-in Groups**: Pre-seeded with **Developers** ($50.00/wk quota, $10.00/wk buffer) and **Business Users** ($10.00/wk quota, $2.00/wk buffer, default for discovered users).
+    * **3-Tier Precedence**: `User Custom Quota > Group Quota > Organization Global Default`. Changing a group's quota instantly applies to all members without individual overrides.
+    * **Group Exemption Inheritance**: Setting `is_exempt` on a group cascades to all members, exempting them from auto-throttling.
+    * **Full Group Management API**: Create, update, delete custom quota groups (`/api/groups`) and batch assign members.
+3. **FinOps Credit & Developer Overage Model**:
     * Quotas are allocated as weekly dollar credits (`Q`, default `$10.00`) with remaining credit balance `B_credit = max(0, Q - C_gross)`.
     * Developer overage tracks usage beyond their assigned quota target: `C_overage = max(0, C_gross - Q)` with configurable overage buffer (`O`).
     * Because Gemini Enterprise uses pooled project-level quotas, this metric reflects internal developer consumption exceeding assigned policy targets rather than external Google Cloud billing liability.
     * **Granular Token Telemetry & Precise Pricing**: Calculates gross spend directly from the exact token counts emitted in Antigravity inference logs (`metadata.promptTokenCount`, `metadata.candidatesTokenCount`, `metadata.cachedContentTokenCount`, and `metadata.thoughtsTokenCount`), mapping specific rates for prompt/input, generated output, cached context, and reasoning/thinking tokens (with fallback ratio modeling if only aggregate `totalTokenCount` is present).
     * Upstream Credit Pool-aligned weekly windows (synchronized with Cloud Monitoring quota window start, with Portal Display Timezone fallback) with historical snapshots archived to Firestore.
-3. **Dual-Group Cloud Identity State Machine**:
-    * **`antigravity-enabled@`**: Bound to IAM role `roles/businessaicode.user`.
-    * **`antigravity-disabled@`**: Zero IAM permissions (paused developers).
-    * **Dynamic Auto-Unthrottle (Quota Expansion)**: If an `Auto-Throttled` developer's quota credits or overage buffer is increased so that $\text{Spend} < \text{Limit}$, the hourly evaluator (or clicking **Publish & Sync**) automatically restores their `ACTIVE` status and moves them back to `antigravity-enabled@` with zero manual group editing required.
-    * **Weekly Credit Pool Auto-Reset**: When the upstream Google Cloud Credit Pool resets (7-day window detected via Cloud Monitoring, or Monday 00:00 fallback), weekly gross spend resets to `$0.00` and all `Auto-Throttled` developers are automatically re-enabled into `antigravity-enabled@`.
+4. **Dual-Group Cloud Identity State Machine**:
+    * **`antigravity-active@`**: Bound to IAM role `roles/businessaicode.user` (enforces access).
+    * **`antigravity-throttled@`**: Zero IAM permissions (paused developers).
+    * **Dynamic Auto-Unthrottle (Quota Expansion)**: If an `Auto-Throttled` developer's quota credits or overage buffer is increased so that $\text{Spend} < \text{Limit}$, the hourly evaluator (or clicking **Publish & Sync**) automatically restores their `ACTIVE` status and moves them back to `antigravity-active@` with zero manual group editing required.
+    * **Weekly Credit Pool Auto-Reset**: When the upstream Google Cloud Credit Pool resets (7-day window detected via Cloud Monitoring, or Monday 00:00 fallback), weekly gross spend resets to `$0.00` and all `Auto-Throttled` developers are automatically re-enabled into `antigravity-active@`.
     * **Administrative Lock Protection**: Distinguishes automated spend limits from `MANUALLY_DISABLED` (administrative locks that are protected from weekly resets and remain locked until explicitly unlocked by an admin).
     * **Quota Exemption**: Supports `is_exempt` to bypass quota limits for leads/VIPs while retaining full usage analytics.
-4. **Developer Onboarding & Synthetic Discovery**:
-    * **Synthetic Discovery**: Automatically discovers active developers from BigQuery inference logs and registers them with default weekly quota credits.
-    * **Manual Pre-provisioning**: Admins can pre-provision developers in the UI or via REST API with custom quotas prior to their first prompt.
-5. **Deferred Sync with Instant Publish**:
-    * Admins can edit developer quotas, toggle exemptions, and update pricing matrix in drafts.
+5. **Developer Onboarding & Synthetic Discovery**:
+    * **Synthetic Discovery**: Automatically discovers active developers from BigQuery inference logs and registers them with the default Quota Management Group (`Business Users`).
+    * **Manual Pre-provisioning**: Admins can pre-provision developers in the UI or via REST API with group assignment or custom quotas prior to their first prompt.
+6. **Deferred Sync with Instant Publish**:
+    * Admins can edit developer quotas, toggle exemptions, modify group baselines, and update pricing matrix in drafts.
     * Clicking **"Publish & Sync"** executes an instant in-process evaluation and reconciles Cloud Identity groups in real-time (<2s), immediately unthrottling developers who received quota increases without waiting for the next cron cycle.
     * Built-in `APScheduler` runs hourly evaluation as an automated safety net.
-6. **Material Design 3 (MUI) Dashboard**:
+7. **Two-Tab Material Design 3 (MUI) Dashboard**:
+    * Two distinct top-level tabs: **Developers & Users** and **Quota Groups**.
+    * **Developers & Users Tab**: Sortable, filterable developer table with color-coded credit utilization progress bars, group chips, group filter dropdown, client-side pagination (10, 25, 50, 100 rows per page), and contextual action buttons (Lock, Unlock, Manage).
+    * **Quota Groups Tab**: Visual card grid of all quota management groups with member counts, aggregate spend, token volume, baseline quota controls, and instant "View Members" drilldown.
     * Hero **Antigravity Weekly Quota Pool** card displaying organization tier, reset countdown, and dual WTU/USD progress bars.
     * Real-time KPI summary cards (Active Developers, Auto-Throttled, Weekly Tokens, Gross Usage, Credits Allocated, Net Overages).
     * Pinned legal/accounting estimation disclaimer banner.
-    * Sortable, filterable developer table with color-coded credit utilization progress bars and contextual action buttons (Lock, Unlock, Manage).
-    * Interactive slide-out drawer with financial ledger, model token distribution, and custom quota controls.
+    * Interactive slide-out drawer with financial ledger, model token distribution, quota management group selector, and custom quota controls.
     * Governance audit trail log viewer and model pricing matrix editor.
-7. **Enterprise Security & Automated Infrastructure**:
+8. **Enterprise Security & Automated Infrastructure**:
     * Provisions APIs, BigQuery dataset, Cloud Logging Sink, Firestore Native Database, Service Account with least-privilege IAM, Artifact Registry repository, and Cloud Run v2 service in the same GCP project via Terraform (`terraform/`).
     * **Zero-Trust Access with IAP**: Full External HTTPS Application Load Balancer integrated with Google Identity-Aware Proxy (IAP) and least-privilege IAM for secure, browser-based SSO.
     * **Automated `sslip.io` DNS & Managed SSL**: Automatically provisions Google-managed SSL certificates using derived `sslip.io` hostnames (e.g. `34-36-64-200.sslip.io`) without requiring a custom domain, with optional custom domain override support.

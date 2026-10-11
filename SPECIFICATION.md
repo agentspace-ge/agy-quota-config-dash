@@ -13,7 +13,7 @@ The **Antigravity Quota & Usage Management Portal** provides fine-grained visibi
 > [!NOTE]
 > **Independent Quota Governance & Upstream Pool Visibility**: Gemini Enterprise enforces subscription quota as a pooled entitlement at the GCP project level. This portal establishes a **two-layer visibility and governance model**:
 > 1. **Upstream Subscription Quota Pool**: Direct read-only telemetry from **Google Cloud Monitoring** (`discoveryengine.googleapis.com/quota/ratev2/...`), providing live organizational visibility into subscription license tier, gross Workload Token Unit (WTU) consumption, contract USD value, and the official Google Cloud weekly reset schedule.
-> 2. **Per-Developer Allocation & Access Governance**: An independent management layer where administrators define per-developer credit budgets, track estimated usage from BigQuery inference logs, and automate access enforcement via Cloud Identity groups (`antigravity-enabled@` vs `antigravity-disabled@`).
+> 2. **Per-Developer Allocation & Access Governance**: An independent management layer where administrators define per-developer credit budgets, track estimated usage from BigQuery inference logs, and automate access enforcement via Cloud Identity IAM gatekeeper groups (`antigravity-active@` vs `antigravity-throttled@`).
 
 To minimize architectural complexity and infrastructure overhead, the system is deployed as a **single, always-on minimal Cloud Run instance** (`min-instances: 1`, `max-instances: 1`, 1 vCPU, 512MB RAM). This single instance hosts:
 1. **The Web Dashboard & REST API**: Instantaneous page loads with zero cold starts for admin users.
@@ -56,8 +56,8 @@ flowchart TD
         Evaluator <-->|"Read/Write Settings, Spend & Pool Cache"| FS[("Google Cloud Firestore")]
         Evaluator -->|"Dual-Write Audit Logs"| CL_AUDIT[("Cloud Logging\nantigravity-quota-audit")]
         Evaluator -->|"Reconcile Memberships"| CI_API["Cloud Identity Directory API"]
-        CI_API --> G_EN["antigravity-enabled@\n(Bound to roles/businessaicode.user)"]
-        CI_API --> G_DIS["antigravity-disabled@\n(Throttled / Paused Users)"]
+        CI_API --> G_EN["antigravity-active@\n(Bound to roles/businessaicode.user)"]
+        CI_API --> G_DIS["antigravity-throttled@\n(Throttled / Paused Users)"]
     end
 ```
 
@@ -116,9 +116,94 @@ While Section 2.1 governs internal developer credit allocations, the organizatio
 
 ---
 
-## 3. Core Architecture & Workflow Model
+## 3. Quota Management Groups Architecture
 
-### 3.1 The "Save" vs. "Publish" Admin Lifecycle
+### 3.1 Overview & Architecture Rationale
+In enterprise organizations running Gemini Enterprise at scale (e.g. 15,000+ developer licenses), setting and updating credit quotas per individual developer becomes an operational bottleneck. 
+
+To solve this, the portal introduces **Quota Management Groups**. Quota Management Groups allow FinOps administrators to group developers by business role, department, or engineering unit and apply quota budgets and overage buffers uniformly at the group level.
+
+#### Critical Distinction: Quota Groups vs. IAM Gatekeeper Groups
+It is essential to distinguish between the two layers of groups in the portal:
+1. **IAM Gatekeeper Groups (Access Control Enforcers)**:
+   - Specific Cloud Identity groups (`antigravity-active@` and `antigravity-throttled@`).
+   - `antigravity-active@` is bound to GCP IAM role `roles/businessaicode.user`.
+   - `antigravity-throttled@` has zero IAM permissions.
+   - The quota evaluator swaps developers between these two gatekeeper groups based on hard quota breaches or manual administrative holds.
+2. **Quota Management Groups (Spend Budget Policies)**:
+   - Logical organizational groups stored in Firestore (`quota_groups` collection).
+   - Define baseline weekly quota credits (`weekly_quota_usd`), overage buffer (`overage_buffer_usd`), and exemption status (`is_exempt`).
+   - Optionally map to an enterprise IAM / Google Workspace group email (`iam_group_email`) for directory audit and upcoming automated member sync.
+
+### 3.2 3-Tier Policy Inheritance & Resolution Precedence
+When the evaluator evaluates a developer's allowed usage, it computes their effective quota according to a strict 3-tier hierarchy:
+
+$$\text{User Custom Quota} \succ \text{Group Quota} \succ \text{Organization Global Default}$$
+
+```mermaid
+flowchart TD
+    Start["Determine Developer Quota & Buffer"] --> CheckUser{"User has custom quota override?\n(has_custom_quota = true)"}
+    CheckUser -->|Yes| ApplyUser["Apply User Custom Quota & Buffer\n(user.custom_quota_usd, user.custom_overage_usd)"]
+    CheckUser -->|No| CheckGroup{"User belongs to a Quota Group?\n(user.group_id is set & exists)"}
+    CheckGroup -->|Yes| ApplyGroup["Inherit Group Quota & Buffer\n(group.weekly_quota_usd, group.overage_buffer_usd)"]
+    CheckGroup -->|No| ApplyGlobal["Fall Back to Organization Defaults\n(config.default_weekly_quota_usd, config.default_overage_buffer_usd)"]
+```
+
+### 3.3 Default Seeded Groups
+On database initialization, the portal automatically seeds two standard enterprise quota groups:
+1. **Developers (`developers`)**:
+   - `display_name`: "Developers"
+   - `description`: "Core engineering and technical staff requiring higher quota allowances"
+   - `weekly_quota_usd`: \$50.00 / week
+   - `overage_buffer_usd`: \$10.00 / week
+   - `is_exempt`: `false`
+2. **Business Users (`business-users`)**:
+   - `display_name`: "Business Users"
+   - `description`: "General enterprise users with standard weekly quota allowances"
+   - `weekly_quota_usd`: \$10.00 / week
+   - `overage_buffer_usd`: \$2.00 / week
+   - `is_exempt`: `false`
+   - *Protected Default*: Automatically assigned to newly discovered developers from BigQuery inference logs; cannot be deleted via the API or UI.
+
+### 3.4 Group Exemption Inheritance
+If a Quota Management Group is marked with `is_exempt = true`, all members of that group automatically inherit exemption from auto-throttling, even if their individual `user.is_exempt` flag is `false`:
+
+$$\text{Effective Exemption} = \text{user.is\_exempt} \lor \text{group.is\_exempt}$$
+
+Exempt developers continue to have their exact token usage and financial spend tracked in dashboards and audit logs, but the evaluator will never swap them into `antigravity-throttled@`.
+
+### 3.5 Group Management REST API
+The backend exposes comprehensive CRUD and membership management endpoints under `/api/groups`:
+
+| Method | Endpoint | Description |
+| :--- | :--- | :--- |
+| `GET` | `/api/groups` | List all quota groups with computed member count, aggregate spend, and token volume. |
+| `POST` | `/api/groups` | Create a new custom quota group with baseline quota and overage buffer. |
+| `GET` | `/api/groups/{group_id}` | Retrieve details and live membership statistics for a specific quota group. |
+| `PUT` | `/api/groups/{group_id}` | Update group display name, description, quota, buffer, exemption, or IAM email. |
+| `DELETE` | `/api/groups/{group_id}` | Delete a custom group. Members are safely reassigned to `business-users`. (`business-users` cannot be deleted). |
+| `POST` | `/api/groups/{group_id}/members` | Bulk assign developers to the specified group. |
+
+In addition, `/api/users` supports filtering by group via `GET /api/users?group_id={group_id}`, and developer updates via `PUT /api/users/{email}` accept `group_id` with immediate effective quota re-evaluation.
+
+### 3.6 Two-Tab Dashboard UI & Roster Pagination
+The web UI is organized into two primary tabs:
+1. **Developers & Users Tab**:
+   - Filterable, sortable developer roster with color-coded credit utilization progress bars.
+   - Quota Group chip displayed on each row (`Developers`, `Business Users`, or custom groups).
+   - Dedicated Group Filter dropdown in the toolbar to isolate members of any group.
+   - Client-side pagination (`TablePagination`) supporting 10, 25, 50, and 100 developers per page to maintain performance with thousands of users.
+2. **Quota Groups Tab**:
+   - Responsive card grid displaying each Quota Management Group.
+   - Real-time aggregate metrics per group: Active Members, Total Weekly Tokens, Gross Spend, and Effective Baseline Quota.
+   - Actions to Create, Edit, or Delete quota groups.
+   - "View Members" navigation button that automatically redirects to the Developers tab with that group pre-filtered.
+
+---
+
+## 4. Core Architecture & Workflow Model
+
+### 4.1 The "Save" vs. "Publish" Admin Lifecycle
 
 To provide operational safety and batch management, administrative actions in the web UI follow a **Deferred Sync with Instant Publish** pattern:
 
@@ -158,16 +243,18 @@ sequenceDiagram
 
 ---
 
-## 4. Dual-Group Identity State Machine
+## 5. Dual-Group IAM Gatekeeper State Machine
 
-### 4.1 Group Definitions & IAM Roles
+### 5.1 Group Definitions & IAM Roles
+
+The portal separates **Quota Management Groups** (which define spending budgets) from **IAM Gatekeeper Groups** (which enforce access control). Access enforcement is managed via two designated Cloud Identity groups:
 
 | Group Email | GCP IAM Role Binding | Purpose |
 | :--- | :--- | :--- |
-| `antigravity-enabled@yourcompany.com` | `roles/businessaicode.user` | **Active Developers**: Grants permission to run Antigravity inference. |
-| `antigravity-disabled@yourcompany.com` | *None* | **Throttled / Paused Developers**: Zero IAM privileges. Tracks all inactive developers for audit and notification lists. |
+| `antigravity-active@yourcompany.com` | `roles/businessaicode.user` | **Active Developers**: Grants permission to run Antigravity inference. |
+| `antigravity-throttled@yourcompany.com` | *None* | **Throttled / Paused Developers**: Zero IAM privileges. Tracks all inactive developers for audit and notification lists. |
 
-### 4.2 State Definitions & Transitions
+### 5.2 State Definitions & Transitions
 
 ```mermaid
 stateDiagram-v2
@@ -197,25 +284,25 @@ stateDiagram-v2
     EXEMPT --> ACTIVE : Admin removes exemption
 ```
 
-### 4.3 State Matrix & Evaluator Action Rules
+### 5.3 State Matrix & Evaluator Action Rules
 
 | State / Flag | Group Location | Evaluator Action on Quota Breach | Weekly Pool Reset Behavior |
 | :--- | :--- | :--- | :--- |
-| **`ACTIVE`** (`is_exempt: false`) | `antigravity-enabled@` | If `C_gross >= Q + O`: Move to `antigravity-disabled@`, set state to `AUTO_DISABLED`. | Reset weekly gross token spend to `$0.00`. Credit balance resets to `Q`. Remain in `antigravity-enabled@`. |
-| **`AUTO_DISABLED`** | `antigravity-disabled@` | User is throttled. If Admin increases `Q` such that `C_gross < Q + O`: Move to `antigravity-enabled@`, set state to `ACTIVE`. | **Auto-Re-enable**: Move user back to `antigravity-enabled@`, set state to `ACTIVE`. |
-| **`MANUALLY_DISABLED`** | `antigravity-disabled@` | Manual lock. Evaluator never modifies group. | **Protected**: Ignored by weekly pool reset. User remains in `antigravity-disabled@`. |
-| **`is_exempt: true`** | `antigravity-enabled@` | Quota checks bypassed. Usage is tracked and displayed, but user is never throttled. | Reset weekly counters. User remains in `antigravity-enabled@`. |
+| **`ACTIVE`** (`is_exempt: false`) | `antigravity-active@` | If `C_gross >= Q + O`: Move to `antigravity-throttled@`, set state to `AUTO_DISABLED`. | Reset weekly gross token spend to `$0.00`. Credit balance resets to `Q`. Remain in `antigravity-active@`. |
+| **`AUTO_DISABLED`** | `antigravity-throttled@` | User is throttled. If Admin increases `Q` such that `C_gross < Q + O`: Move to `antigravity-active@`, set state to `ACTIVE`. | **Auto-Re-enable**: Move user back to `antigravity-active@`, set state to `ACTIVE`. |
+| **`MANUALLY_DISABLED`** | `antigravity-throttled@` | Manual lock. Evaluator never modifies group. | **Protected**: Ignored by weekly pool reset. User remains in `antigravity-throttled@`. |
+| **`is_exempt: true`** | `antigravity-active@` | Quota checks bypassed. Usage is tracked and displayed, but user is never throttled. | Reset weekly counters. User remains in `antigravity-active@`. |
 
-### 4.4 Automated Cloud Identity Group Provisioning (Terraform)
+### 5.4 Automated Cloud Identity Group Provisioning (Terraform)
 
 To eliminate manual directory setup, group creation and permission delegation are fully automated via Terraform ([`terraform/cloud_identity.tf`](file:///Users/ayratk/development/agy-quota-config-dash/terraform/cloud_identity.tf)):
 
 1. **Group Provisioning (`google_cloud_identity_group`)**:
-   - `antigravity-enabled@<domain>`: Tagged with `cloudidentity.googleapis.com/groups.discussion_forum`.
-   - `antigravity-disabled@<domain>`: Tagged with `cloudidentity.googleapis.com/groups.discussion_forum`.
+   - `antigravity-active@<domain>`: Tagged with `cloudidentity.googleapis.com/groups.discussion_forum`.
+   - `antigravity-throttled@<domain>`: Tagged with `cloudidentity.googleapis.com/groups.discussion_forum`.
    - Configurable via `create_cloud_identity_groups = true/false` flag to support pre-existing groups.
 2. **Access Entitlement (`google_project_iam_member`)**:
-   - Automatically binds `roles/businessaicode.user` directly to `group:antigravity-enabled@<domain>`.
+   - Automatically binds `roles/businessaicode.user` directly to `group:antigravity-active@<domain>`.
    - The disabled group receives no project IAM roles.
 3. **Least-Privilege Group Delegation (`google_cloud_identity_group_membership`)**:
    - The Cloud Run Portal Service Account (`antigravity-quota-portal@<project>.iam.gserviceaccount.com`) is assigned roles `["MEMBER", "OWNER"]` scoped strictly inside both groups.
@@ -223,9 +310,9 @@ To eliminate manual directory setup, group creation and permission delegation ar
 
 ---
 
-## 5. Token Cost Modeling Engine & "Hinge Points"
+## 6. Token Cost Modeling Engine & "Hinge Points"
 
-### 5.1 Per-Model Configuration Schema
+### 6.1 Per-Model Configuration Schema
 
 ```json
 {
@@ -306,15 +393,15 @@ To eliminate manual directory setup, group creation and permission delegation ar
 
 ---
 
-## 6. Timezone & Weekly Boundary Engine
+## 7. Timezone & Weekly Boundary Engine
 
-### 6.1 Credit Pool Window Alignment & Timezone Normalization
+### 7.1 Credit Pool Window Alignment & Timezone Normalization
 * **Upstream Synchronization**: Weekly usage and quota evaluation windows align with the upstream Google Cloud Credit Pool start timestamp (`window_start_utc` from Cloud Monitoring `ratev2` quota telemetry).
 * **7-Day Dynamic Cycle**: The quota evaluation window runs for 7 days ($T_{\text{next\_reset}} = T_{\text{window\_start}} + 7 \text{ days}$).
 * **Monotonic Reset Guard**: The evaluator only triggers a cycle rollover when a new `window_start_utc` is at least 5 days newer than the previous cycle, preventing mid-week churn or calendar day mismatch.
 * **Portal Display Timezone**: The application stores a configurable timezone (e.g. `America/Los_Angeles`, `America/New_York`, or `UTC`). It formats user interface timestamps and serves as a deterministic fallback (Monday 00:00:00 to Sunday 23:59:59) if upstream Cloud Monitoring metrics are unavailable.
 
-### 6.2 Date-Sharded Log Export & Consolidated BigQuery View
+### 7.2 Date-Sharded Log Export & Consolidated BigQuery View
 
 The Cloud Logging sink writes inference logs to BigQuery in date-sharded tables (`businessaicode_googleapis_com_inference_response_YYYYMMDD`). To enable uninterrupted queries across week boundaries without requiring table-partitioning restructuring:
 1. **Terraform-Managed View**: A BigQuery view named `businessaicode_googleapis_com_inference_response` is provisioned across all table shards:
@@ -324,7 +411,7 @@ The Cloud Logging sink writes inference logs to BigQuery in date-sharded tables 
    ```
 2. **Wildcard Fallback**: Application queries in [`app/bq/bq_client.py`](file:///Users/ayratk/development/agy-quota-config-dash/app/bq/bq_client.py) target `{self.project_id}.{self.dataset_name}.businessaicode_googleapis_com_inference_response*`, supporting both the unified view and raw wildcard table matches.
 
-### 6.3 Structured Telemetry Payload (`metadata`)
+### 7.3 Structured Telemetry Payload (`metadata`)
 
 Every log entry under `businessaicode.googleapis.com/inference_response` contains a structured JSON payload:
 
@@ -358,7 +445,7 @@ Key telemetry fields parsed by the evaluator:
 * **`cachedcontenttokencount`**: Context cache savings.
 * **`quotatype`**: Quota type flag (`REGULAR_QUOTA`).
 
-### 6.4 BigQuery Parametrized Extraction Query
+### 7.4 BigQuery Parametrized Extraction Query
 
 ```sql
 -- Parametrized BigQuery Usage Aggregation
@@ -397,22 +484,23 @@ GROUP BY
 
 ---
 
-## 7. Firestore Database Schema
+## 8. Firestore Database Schema
 
-Firestore stores the application settings, user configurations, weekly consumption, credit ledgers, and upstream subscription quota pool cache.
+Firestore stores the application settings, user configurations, quota management groups, weekly consumption, credit ledgers, and upstream subscription quota pool cache.
 
 ```mermaid
 erDiagram
     CONFIG_SETTINGS ||--o{ MODEL_PRICING : contains
     CONFIG_SETTINGS ||--|| CREDIT_POOL_CACHE : contains
+    QUOTA_GROUPS ||--o{ USERS : classifies
     USERS ||--o{ AUDIT_EVENTS : tracks
     USERS ||--o{ WEEKLY_SNAPSHOTS : archives
 
     CONFIG_SETTINGS {
         string doc_id "app_config"
         string timezone "America/Los_Angeles"
-        string enabled_group "antigravity-enabled@company.com"
-        string disabled_group "antigravity-disabled@company.com"
+        string enabled_group "antigravity-active@company.com"
+        string disabled_group "antigravity-throttled@company.com"
         decimal default_quota_usd "10.00"
         decimal default_overage_usd "2.00"
         array preset_quotas "[10, 15, 25, 50, 100]"
@@ -434,8 +522,21 @@ erDiagram
         datetime last_synced_at "2026-10-10T16:19:55Z"
     }
 
+    QUOTA_GROUPS {
+        string group_id PK "developers / business-users"
+        string display_name "Developers"
+        string description "Engineering staff"
+        decimal weekly_quota_usd "50.00"
+        decimal overage_buffer_usd "10.00"
+        boolean is_exempt "false"
+        string iam_group_email "devs@company.com"
+        datetime created_at
+        datetime updated_at
+    }
+
     USERS {
         string email PK "alice@company.com"
+        string group_id FK "business-users"
         string status "ACTIVE | AUTO_DISABLED | MANUALLY_DISABLED"
         boolean is_exempt "false"
         boolean has_custom_quota "false"
@@ -464,11 +565,12 @@ erDiagram
     }
 ```
 
-### 7.1 Firestore User Document (`users/{user_email}`)
+### 8.1 Firestore User Document (`users/{user_email}`)
 
 ```json
 {
   "email": "alice@yourcompany.com",
+  "group_id": "developers",
   "status": "ACTIVE",
   "is_exempt": false,
   "has_custom_quota": true,
@@ -501,7 +603,7 @@ erDiagram
 }
 ```
 
-### 7.2 Firestore Credit Pool Cache Document (`config/credit_pool`)
+### 8.2 Firestore Credit Pool Cache Document (`config/credit_pool`)
 
 Persists the latest upstream Google Cloud Monitoring subscription pool metrics to provide instant dashboard loads and offline/rate-limit fallback:
 
@@ -520,16 +622,38 @@ Persists the latest upstream Google Cloud Monitoring subscription pool metrics t
 }
 ```
 
+### 8.3 Firestore Quota Group Document (`quota_groups/{group_id}`)
+
+Persists organizational spend groups, default quotas, and group-level exemptions:
+
+```json
+{
+  "group_id": "developers",
+  "display_name": "Developers",
+  "description": "Core engineering and technical staff requiring higher quota allowances",
+  "weekly_quota_usd": 50.00,
+  "overage_buffer_usd": 10.00,
+  "is_exempt": false,
+  "iam_group_email": "developers@yourcompany.com",
+  "created_at": "2026-10-11T12:00:00Z",
+  "updated_at": "2026-10-11T12:00:00Z"
+}
+```
+
 ---
 
-## 8. Web Application UI/UX Specification
+## 9. Web Application UI/UX Specification
 
-### 8.1 Global Estimation Disclaimer & Top Banner
-* **Single Disclaimer**: Displayed once at the top of the portal below the application header:
-  * *"ℹ️ All token breakdown percentages, gross spend figures, credit balances, and net cost metrics are estimated projections calculated from raw token telemetry logs and configured model pricing assumptions."*
+### 9.1 Two-Tab Organization & Top Banner
+The dashboard navigation features two top-level Material UI tabs:
+1. **Developers & Users**: Real-time developer governance table, filters, pagination, and slide-out user management drawer.
+2. **Quota Groups**: Card-grid view of all quota management groups, live aggregate statistics, and group baseline editing dialogs.
 
-### 8.2 Upstream Hero Widget: Antigravity Weekly Quota Pool Card
-Positioned prominently above the developer management table, this hero component renders live upstream contract entitlement data fetched from Google Cloud Monitoring:
+A single global estimation disclaimer is pinned at the top of the portal below the application header:
+> *"ℹ️ All token breakdown percentages, gross spend figures, credit balances, and net cost metrics are estimated projections calculated from raw token telemetry logs and configured model pricing assumptions."*
+
+### 9.2 Upstream Hero Widget: Antigravity Weekly Quota Pool Card
+Positioned prominently above the primary tabs, this hero component renders live upstream contract entitlement data fetched from Google Cloud Monitoring:
 * **Header & Identity**:
   * Cloud Icon + Title: **`Antigravity Weekly Quota Pool`**
   * Tier Badge: **`Tier: Gemini Enterprise Plus`** (or Standard / Flex)
@@ -542,20 +666,21 @@ Positioned prominently above the developer management table, this hero component
   * Secondary WTU Raw Tokens: **`5,106,993 / 37,500,000 WTU (5.11M / 37.50M)`**.
 * **Progress Bar**: Multi-stage visual progress bar with smooth transitions (Emerald `<80%`, Amber `80-100%`, Rose `>100%`).
 
-### 8.3 Internal FinOps KPI Summary Cards
+### 9.3 Internal FinOps KPI Summary Cards
 Six summary cards reflecting internal developer credit allocations and BigQuery telemetry:
 * `Active Developers`: Number of developers in `ACTIVE` status.
-* `Auto-Throttled`: Number of developers currently paused in `antigravity-disabled@`.
+* `Auto-Throttled`: Number of developers currently paused in `antigravity-throttled@`.
 * `Tokens This Week`: Total weekly token volume (e.g. `53.54M`).
 * `Gross Usage`: Aggregated developer token spend across all models (e.g. `$6.48`).
 * `Credits Allocated`: Sum of all granted developer quotas (e.g. `$23.00`).
 * `Net Overages`: Cumulative spend exceeding individual quotas (e.g. `$0.88`).
 
-### 8.4 Developer Governance Table
+### 9.4 Developer Governance Table (Tab 1)
 
 | Column Name | Data Type | Sortable | Display / Visual Elements |
 | :--- | :--- | :---: | :--- |
 | **User** | String | Yes | Gravatar/Avatar + Developer Email (`user@company.com`) |
+| **Group** | String | Yes | Colored chip with Quota Group display name (e.g. `Developers` or `Business Users`) |
 | **Status** | Enum | Yes | 🟢 `Active` \| 🟡 `Warning (>80%)` \| 🔴 `Auto-Throttled` \| 🔒 `Locked` \| ⚪ `Exempt` |
 | **Total Tokens** | Integer | Yes | Formatted with commas (`3,450,000`) |
 | **Gross Usage** | Currency | Yes | **$14.85** *(Total token value)* |
@@ -565,7 +690,19 @@ Six summary cards reflecting internal developer credit allocations and BigQuery 
 | **Last Active** | Relative Time | Yes | "12 minutes ago" |
 | **Actions** | Action Menu | No | `[ Quick Edit Quota ]` \| `[ Disable / Lock ]` \| `[ Set Exempt ]` |
 
-### 8.5 User Detail Slide-out Drawer
+* **Group Filter**: A dropdown filter in the table toolbar allows filtering by specific Quota Management Groups or showing "All Groups".
+* **Pagination**: Client-side Material UI `TablePagination` supporting 10, 25, 50, and 100 rows per page to deliver high responsiveness even in large enterprises with thousands of developers.
+
+### 9.5 Quota Groups Grid (Tab 2)
+* **Card Grid**: Responsive cards for each Quota Management Group rendering group name, description, baseline weekly quota (`$50.00/wk`), overage buffer (`$10.00/wk`), and exemption badge.
+* **Aggregate Metrics**: Live KPI badges displaying Member Count, Weekly Gross Spend, and Weekly Token Volume per group.
+* **Actions**:
+  * `[ Create Group ]`: Dialog to define new custom quota groups.
+  * `[ Edit Group ]`: Dialog to modify baseline budgets or group exemptions.
+  * `[ Delete Group ]`: Deletes custom group and reassigns members to `business-users`. (`business-users` is protected).
+  * `[ View Members ]`: Instantly navigates to the Developers tab with that group filter pre-selected.
+
+### 9.6 User Detail Slide-out Drawer
 Clicking any user row opens a slide-out drawer containing:
 1.  **Credit & Cost Ledger**:
     *   **Gross Token Value**: \$14.85
@@ -575,34 +712,36 @@ Clicking any user row opens a slide-out drawer containing:
 2.  **Usage & Cost Donut Chart**: Breakdown by model (`Gemini 3 Pro` vs `Gemini 3.6 Flash`).
 3.  **Hinge Point Breakdown**: Estimated Input vs Output vs Cached token volume and dollar amounts.
 4.  **Quota Configuration Form**:
-    *   Radio buttons for presets (\$10, \$15, \$25, \$50, \$100) or Custom Text Input (\$XX.XX).
+    *   **Quota Management Group**: Select dropdown to switch developer's assigned Quota Group (e.g. `Developers` or `Business Users`).
+    *   Radio buttons for presets (\$10, \$15, \$25, \$50, \$100) or Custom Text Input (\$XX.XX) for individual overrides.
     *   Overage Buffer Input (\$XX.XX).
     *   `Exempt from Quota Controls` Checkbox.
     *   `Manually Lock / Disable User` Toggle.
-### 8.6 Developer Onboarding ("Add Developer" Dialog)
+
+### 9.7 Developer Onboarding ("Add Developer" Dialog)
 In addition to synthetic discovery from BigQuery telemetry, administrators can manually pre-provision developers:
-* **Interactive Modal**: Admin enters developer email, selects weekly credit target (default or custom), sets overage buffer, and sets exemption status.
+* **Interactive Modal**: Admin enters developer email, selects Quota Management Group, optionally specifies custom quota/buffer overrides, and sets exemption status.
 * **REST API**: Invokes `POST /api/users` to initialize the developer in Firestore with status `ACTIVE`.
-* **Instant Group Assignment**: Upon "Publish & Sync", the evaluator verifies and adds the developer to `antigravity-enabled@`.
+* **Instant Group Assignment**: Upon "Publish & Sync", the evaluator verifies and adds the developer to IAM Gatekeeper group `antigravity-active@`.
 
 ---
 
-## 9. Security & Minimal Privilege IAM Model
+## 10. Security & Minimal Privilege IAM Model
 
 | Identity / Service Account | Granted IAM Roles | Scoped Resource | Purpose |
 | :--- | :--- | :--- | :--- |
 | **Cloud Run Portal SA** (`antigravity-quota-portal@...`) | `roles/monitoring.viewer` | GCP Project | Queries upstream Gemini Enterprise subscription quota metrics (`discoveryengine.googleapis.com/quota/ratev2`). |
 | **Cloud Run Portal SA** (`antigravity-quota-portal@...`) | `roles/bigquery.dataViewer`<br>`roles/bigquery.jobUser` | BigQuery Dataset & Project | Queries weekly developer token logs. |
-| **Cloud Run Portal SA** (`antigravity-quota-portal@...`) | `roles/datastore.user` | Cloud Firestore | Manages configurations, quotas, user states, subscription pool cache, and audit trails. |
+| **Cloud Run Portal SA** (`antigravity-quota-portal@...`) | `roles/datastore.user` | Cloud Firestore | Manages configurations, quotas, user states, quota groups, subscription pool cache, and audit trails. |
 | **Cloud Run Portal SA** (`antigravity-quota-portal@...`) | `roles/logging.logWriter` | GCP Project | Emits structured compliance audit logs to Cloud Logging (`antigravity-quota-audit`). |
 | **Cloud Run Portal SA** (`antigravity-quota-portal@...`) | `roles/serviceusage.serviceUsageConsumer` | GCP Project | Consumes BigQuery, Cloud Monitoring, and logging APIs without project admin rights. |
-| **Cloud Run Portal SA** (`antigravity-quota-portal@...`) | Cloud Identity **Owner & Member** | `antigravity-enabled@`<br>`antigravity-disabled@` | Reconciles developer memberships. **Zero GCP project IAM admin rights.** |
+| **Cloud Run Portal SA** (`antigravity-quota-portal@...`) | Cloud Identity **Owner & Member** | `antigravity-active@`<br>`antigravity-throttled@` | Reconciles developer memberships. **Zero GCP project IAM admin rights.** |
 | **Admin Users / Domains** (e.g. `domain:gcp.altostrat.com`) | `roles/run.invoker` | Cloud Run Service | Authorized invocation of the web dashboard and REST APIs under IAM authentication. |
 | **Cloud Logging Sink Writer** (`service-PROJECT_NUM@gcp-sa-logging...`) | `roles/bigquery.dataEditor` | `antigravity_inference_logs` Dataset | Ingests `businessaicode.googleapis.com` logs from Cloud Logging into BigQuery. |
 
 ---
 
-## 10. Enterprise Ingress & Secure Access (Argolis Environments)
+## 11. Enterprise Ingress & Secure Access (Argolis Environments)
 
 In high-governance and Argolis sandbox environments, Google Cloud organization policies strictly forbid public unauthenticated Cloud Run endpoints (`allUsers`). The system accommodates this via two complementary access patterns:
 
@@ -631,7 +770,7 @@ flowchart LR
 
 ---
 
-## 11. Dual-Write Audit Trail & Observability
+## 12. Dual-Write Audit Trail & Observability
 
 To satisfy enterprise FinOps compliance and SIEM ingestion, all state changes are recorded using a dual-write architecture:
 
@@ -644,11 +783,13 @@ To satisfy enterprise FinOps compliance and SIEM ingestion, all state changes ar
 
 ---
 
-## 12. Summary & Operational Status
+## 13. Summary & Operational Status
 
 The portal is actively running with:
 1. **Live Inference Log Ingestion**: Ingesting daily sharded telemetry from `businessaicode.googleapis.com` via a consolidated BigQuery view.
 2. **Dynamic Pricing Calibration**: Supporting current models including `gemini-3.8-flash`, `gemini-3.1-pro-preview`, and `gemini-3.5-flash-lite`.
-3. **Automated Directory Governance**: Cloud Identity groups (`antigravity-enabled@` / `antigravity-disabled@`) fully provisioned and managed via Terraform.
-4. **Upstream Quota Telemetry**: Google Cloud Monitoring ratev2 integration with 300s TTL in-memory caching and Firestore snapshot fallback, tracking organizational subscription tier, WTU token usage, and live 7-day reset countdowns.
-5. **Argolis Compliance**: Zero unauthenticated exposure, IAM-authenticated invocation, and local proxy bridge for operational administration.
+3. **Automated Directory Governance**: Cloud Identity IAM gatekeeper groups (`antigravity-active@` / `antigravity-throttled@`) fully provisioned and managed via Terraform.
+4. **Quota Management Groups**: 3-tier policy hierarchy (`User Custom Quota > Group Quota > Global Default`) with pre-seeded "Developers" ($50/wk) and "Business Users" ($10/wk) groups, group exemption cascading, and full CRUD REST APIs.
+5. **Two-Tab Responsive UI**: Dedicated "Developers & Users" and "Quota Groups" tabs with client-side table pagination (10, 25, 50, 100 rows) and instant cross-tab member drilldowns.
+6. **Upstream Quota Telemetry**: Google Cloud Monitoring ratev2 integration with 300s TTL in-memory caching and Firestore snapshot fallback, tracking organizational subscription tier, WTU token usage, and live 7-day reset countdowns.
+7. **Argolis Compliance**: Zero unauthenticated exposure, IAM-authenticated invocation, and local proxy bridge for operational administration.
