@@ -110,7 +110,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
           <Grid item xs={12}>
             <Typography variant="caption" sx={{ color: '#5f6368', fontWeight: 600 }}>
-              GOOGLE CLOUD IDENTITY GROUPS
+              IAM GATEKEEPER GROUPS (Access Control Enforcers)
             </Typography>
             <TextField
               fullWidth

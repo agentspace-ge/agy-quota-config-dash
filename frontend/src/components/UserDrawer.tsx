@@ -10,6 +10,7 @@ import {
   Grid,
   IconButton,
   InputAdornment,
+  MenuItem,
   Paper,
   Switch,
   TextField,
@@ -22,10 +23,11 @@ import SaveIcon from '@mui/icons-material/Save';
 import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
 import DonutLargeIcon from '@mui/icons-material/DonutLarge';
 import TuneIcon from '@mui/icons-material/Tune';
-import { AppConfig, User, UserUpdatePayload } from '../types';
+import { AppConfig, QuotaGroup, User, UserUpdatePayload } from '../types';
 
 interface UserDrawerProps {
   user: User | null;
+  groups?: QuotaGroup[];
   config: AppConfig | null;
   nextResetUtc?: string | null;
   open: boolean;
@@ -37,6 +39,7 @@ const MODEL_COLORS = ['#6366f1', '#10b981', '#f59e0b', '#3b82f6', '#ec4899', '#8
 
 export const UserDrawer: React.FC<UserDrawerProps> = ({
   user,
+  groups = [],
   config,
   nextResetUtc,
   open,
@@ -46,6 +49,7 @@ export const UserDrawer: React.FC<UserDrawerProps> = ({
   const theme = useTheme();
   const isDark = theme.palette.mode === 'dark';
 
+  const [selectedGroupId, setSelectedGroupId] = useState<string>('business-users');
   const [hasCustomQuota, setHasCustomQuota] = useState(false);
   const [selectedPreset, setSelectedPreset] = useState<string>('10');
   const [customQuotaInput, setCustomQuotaInput] = useState<string>('10.00');
@@ -56,6 +60,7 @@ export const UserDrawer: React.FC<UserDrawerProps> = ({
 
   useEffect(() => {
     if (user && config) {
+      setSelectedGroupId(user.group_id || 'business-users');
       setHasCustomQuota(user.has_custom_quota);
       const quotaVal = user.custom_quota_usd ?? config.default_quota_usd;
       const overageVal = user.custom_overage_usd ?? config.default_overage_usd;
@@ -92,6 +97,7 @@ export const UserDrawer: React.FC<UserDrawerProps> = ({
       const overageNum = parseFloat(customOverageInput) || config?.default_overage_usd || 2.0;
 
       const payload: UserUpdatePayload = {
+        group_id: selectedGroupId,
         has_custom_quota: hasCustomQuota,
         custom_quota_usd: hasCustomQuota ? quotaNum : null,
         custom_overage_usd: hasCustomQuota ? overageNum : null,
@@ -625,6 +631,35 @@ export const UserDrawer: React.FC<UserDrawerProps> = ({
             border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.08)' : '#e2e8f0'}`,
           }}
         >
+          {/* Quota Management Group Selection */}
+          <Box sx={{ mb: 2.5 }}>
+            <Typography variant="caption" sx={{ color: isDark ? '#9ca3af' : '#64748b', fontWeight: 600, mb: 1, display: 'block' }}>
+              QUOTA MANAGEMENT GROUP
+            </Typography>
+            <TextField
+              select
+              size="small"
+              fullWidth
+              value={selectedGroupId}
+              onChange={(e) => setSelectedGroupId(e.target.value)}
+              helperText={`Baseline quota: $${(
+                groups.find((g) => g.group_id === selectedGroupId)?.weekly_quota_usd ??
+                config?.default_quota_usd ??
+                10
+              ).toFixed(2)}/wk${
+                groups.find((g) => g.group_id === selectedGroupId)?.is_exempt ? ' • Group is exempt from throttling' : ''
+              }`}
+            >
+              {groups.map((g) => (
+                <MenuItem key={g.group_id} value={g.group_id}>
+                  {g.display_name} (${g.weekly_quota_usd.toFixed(2)}/wk {g.is_exempt ? '• Exempt' : ''})
+                </MenuItem>
+              ))}
+            </TextField>
+          </Box>
+
+          <Divider sx={{ mb: 2 }} />
+
           {/* Custom Quota Toggle */}
           <FormControlLabel
             control={
@@ -637,10 +672,10 @@ export const UserDrawer: React.FC<UserDrawerProps> = ({
             label={
               <Box>
                 <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                  Enable Custom Quota for this Developer
+                  Enable Custom Quota Override for this Developer
                 </Typography>
                 <Typography variant="caption" sx={{ color: isDark ? '#9ca3af' : '#64748b' }}>
-                  Overrides organization default quota (${config?.default_quota_usd.toFixed(2)}/wk)
+                  Overrides group baseline quota with developer-specific spend and overage limits
                 </Typography>
               </Box>
             }
@@ -740,7 +775,7 @@ export const UserDrawer: React.FC<UserDrawerProps> = ({
                   Exempt from Automatic Quota Throttling
                 </Typography>
                 <Typography variant="caption" sx={{ color: isDark ? '#9ca3af' : '#64748b' }}>
-                  Developer will never be moved to antigravity-disabled@, even if quota is breached.
+                  Developer will never be moved to antigravity-throttled@, even if quota is breached.
                 </Typography>
               </Box>
             }
@@ -762,7 +797,7 @@ export const UserDrawer: React.FC<UserDrawerProps> = ({
                   Manually Lock Developer
                 </Typography>
                 <Typography variant="caption" sx={{ color: isDark ? '#9ca3af' : '#64748b' }}>
-                  Immediately demotes to antigravity-disabled@, revoking Antigravity IDE access.
+                  Immediately demotes to antigravity-throttled@, revoking Antigravity IDE access.
                 </Typography>
               </Box>
             }

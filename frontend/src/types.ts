@@ -25,6 +25,7 @@ export interface CurrentWeekUsage {
 
 export interface User {
   email: string;
+  group_id?: string | null;
   status: UserStatus;
   is_exempt: boolean;
   has_custom_quota: boolean;
@@ -111,9 +112,53 @@ export interface EvaluationResult {
 }
 
 export interface UserUpdatePayload {
+  group_id?: string | null;
   is_exempt?: boolean;
   status?: UserStatus;
   has_custom_quota?: boolean;
   custom_quota_usd?: number | null;
   custom_overage_usd?: number | null;
+}
+
+export interface QuotaGroupStats {
+  member_count: number;
+  gross_spend_usd: number;
+  total_tokens: number;
+}
+
+export interface QuotaGroup {
+  group_id: string;
+  display_name: string;
+  description: string;
+  weekly_quota_usd: number;
+  overage_buffer_usd: number;
+  is_exempt: boolean;
+  iam_group_email?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  stats?: QuotaGroupStats | null;
+}
+
+export interface QuotaGroupCreateRequest {
+  group_id: string;
+  display_name: string;
+  description?: string;
+  weekly_quota_usd: number;
+  overage_buffer_usd?: number;
+  is_exempt?: boolean;
+  iam_group_email?: string | null;
+}
+
+export interface QuotaGroupUpdateRequest {
+  display_name?: string;
+  description?: string;
+  weekly_quota_usd?: number;
+  overage_buffer_usd?: number;
+  is_exempt?: boolean;
+  iam_group_email?: string | null;
+}
+
+export interface QuotaGroupMembersRequest {
+  emails: string[];
+  action?: 'add' | 'remove' | 'replace';
 }

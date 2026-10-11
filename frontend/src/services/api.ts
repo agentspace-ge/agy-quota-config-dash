@@ -4,6 +4,10 @@ import {
   EvaluationResult,
   KPIStats,
   ModelPricing,
+  QuotaGroup,
+  QuotaGroupCreateRequest,
+  QuotaGroupMembersRequest,
+  QuotaGroupUpdateRequest,
   User,
   UserUpdatePayload,
 } from '../types';
@@ -14,6 +18,7 @@ export async function fetchUsers(params?: {
   search?: string;
   status?: string;
   exempt_only?: boolean;
+  group_id?: string;
   sort_by?: string;
   sort_order?: string;
 }): Promise<User[]> {
@@ -21,6 +26,7 @@ export async function fetchUsers(params?: {
   if (params?.search) url.searchParams.set('search', params.search);
   if (params?.status) url.searchParams.set('status', params.status);
   if (params?.exempt_only !== undefined) url.searchParams.set('exempt_only', String(params.exempt_only));
+  if (params?.group_id) url.searchParams.set('group_id', params.group_id);
   if (params?.sort_by) url.searchParams.set('sort_by', params.sort_by);
   if (params?.sort_order) url.searchParams.set('sort_order', params.sort_order);
 
@@ -55,6 +61,7 @@ export async function toggleUserLock(email: string): Promise<User> {
 
 export async function createUser(payload: {
   email: string;
+  group_id?: string | null;
   is_exempt?: boolean;
   has_custom_quota?: boolean;
   custom_quota_usd?: number | null;
@@ -126,5 +133,72 @@ export async function fetchAuditEvents(limit: number = 50, action?: string, user
 
   const res = await fetch(url.toString());
   if (!res.ok) throw new Error(`Failed to fetch audit events: ${res.statusText}`);
+  return res.json();
+}
+
+// ================= Quota Groups API =================
+
+export async function fetchGroups(): Promise<QuotaGroup[]> {
+  const res = await fetch(`${API_BASE}/groups`);
+  if (!res.ok) throw new Error(`Failed to fetch groups: ${res.statusText}`);
+  return res.json();
+}
+
+export async function fetchGroup(groupId: string): Promise<QuotaGroup> {
+  const res = await fetch(`${API_BASE}/groups/${encodeURIComponent(groupId)}`);
+  if (!res.ok) throw new Error(`Failed to fetch group: ${res.statusText}`);
+  return res.json();
+}
+
+export async function createGroup(payload: QuotaGroupCreateRequest): Promise<QuotaGroup> {
+  const res = await fetch(`${API_BASE}/groups`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.detail || `Failed to create group: ${res.statusText}`);
+  }
+  return res.json();
+}
+
+export async function updateGroup(groupId: string, payload: QuotaGroupUpdateRequest): Promise<QuotaGroup> {
+  const res = await fetch(`${API_BASE}/groups/${encodeURIComponent(groupId)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.detail || `Failed to update group: ${res.statusText}`);
+  }
+  return res.json();
+}
+
+export async function deleteGroup(groupId: string): Promise<{ deleted: boolean; group_id: string; reassigned_to: string }> {
+  const res = await fetch(`${API_BASE}/groups/${encodeURIComponent(groupId)}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.detail || `Failed to delete group: ${res.statusText}`);
+  }
+  return res.json();
+}
+
+export async function assignGroupMembers(
+  groupId: string,
+  payload: QuotaGroupMembersRequest
+): Promise<{ success: boolean; group_id: string; assigned_count: number }> {
+  const res = await fetch(`${API_BASE}/groups/${encodeURIComponent(groupId)}/members`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.detail || `Failed to assign group members: ${res.statusText}`);
+  }
   return res.json();
 }

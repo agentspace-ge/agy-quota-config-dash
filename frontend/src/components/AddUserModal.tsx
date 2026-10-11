@@ -8,19 +8,22 @@ import {
   FormControlLabel,
   Grid,
   InputAdornment,
+  MenuItem,
   Switch,
   TextField,
   Typography,
 } from '@mui/material';
 import PersonAddIcon from '@mui/icons-material/PersonAdd';
-import { AppConfig } from '../types';
+import { AppConfig, QuotaGroup } from '../types';
 
 interface AddUserModalProps {
   config: AppConfig | null;
+  groups?: QuotaGroup[];
   open: boolean;
   onClose: () => void;
   onAdd: (payload: {
     email: string;
+    group_id?: string | null;
     is_exempt?: boolean;
     has_custom_quota?: boolean;
     custom_quota_usd?: number | null;
@@ -30,11 +33,13 @@ interface AddUserModalProps {
 
 export const AddUserModal: React.FC<AddUserModalProps> = ({
   config,
+  groups = [],
   open,
   onClose,
   onAdd,
 }) => {
   const [email, setEmail] = useState('');
+  const [selectedGroupId, setSelectedGroupId] = useState('business-users');
   const [hasCustomQuota, setHasCustomQuota] = useState(false);
   const [customQuota, setCustomQuota] = useState('10.00');
   const [customOverage, setCustomOverage] = useState('2.00');
@@ -52,12 +57,14 @@ export const AddUserModal: React.FC<AddUserModalProps> = ({
     try {
       await onAdd({
         email: email.trim(),
+        group_id: selectedGroupId,
         is_exempt: isExempt,
         has_custom_quota: hasCustomQuota,
         custom_quota_usd: hasCustomQuota ? parseFloat(customQuota) : null,
         custom_overage_usd: hasCustomQuota ? parseFloat(customOverage) : null,
       });
       setEmail('');
+      setSelectedGroupId('business-users');
       setHasCustomQuota(false);
       setIsExempt(false);
       onClose();
@@ -76,7 +83,7 @@ export const AddUserModal: React.FC<AddUserModalProps> = ({
       </DialogTitle>
       <DialogContent dividers>
         <Typography variant="body2" sx={{ color: '#5f6368', mb: 2 }}>
-          Grant initial credit allocation and add developer to <strong>{config?.enabled_group || 'antigravity-enabled@'}</strong>.
+          Grant initial credit allocation and add developer to <strong>{config?.enabled_group || 'antigravity-active@'}</strong>.
         </Typography>
 
         <TextField
@@ -90,6 +97,27 @@ export const AddUserModal: React.FC<AddUserModalProps> = ({
           helperText={error}
           sx={{ mb: 2 }}
         />
+
+        <TextField
+          select
+          fullWidth
+          size="small"
+          label="Quota Management Group"
+          value={selectedGroupId}
+          onChange={(e) => setSelectedGroupId(e.target.value)}
+          helperText={`Inherits group baseline quota: $${(
+            groups.find((g) => g.group_id === selectedGroupId)?.weekly_quota_usd ??
+            config?.default_quota_usd ??
+            10
+          ).toFixed(2)}/wk`}
+          sx={{ mb: 2 }}
+        >
+          {groups.map((g) => (
+            <MenuItem key={g.group_id} value={g.group_id}>
+              {g.display_name} (${g.weekly_quota_usd.toFixed(2)}/wk)
+            </MenuItem>
+          ))}
+        </TextField>
 
         <FormControlLabel
           control={

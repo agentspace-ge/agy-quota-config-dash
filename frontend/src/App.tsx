@@ -9,6 +9,8 @@ import {
   CssBaseline,
   IconButton,
   Snackbar,
+  Tab,
+  Tabs,
   Toolbar,
   Tooltip,
   Typography,
@@ -23,11 +25,14 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import DarkModeOutlinedIcon from '@mui/icons-material/DarkModeOutlined';
 import LightModeOutlinedIcon from '@mui/icons-material/LightModeOutlined';
 import PersonAddOutlinedIcon from '@mui/icons-material/PersonAddOutlined';
+import PeopleAltOutlinedIcon from '@mui/icons-material/PeopleAltOutlined';
+import FolderSharedOutlinedIcon from '@mui/icons-material/FolderSharedOutlined';
 
 import { getTheme } from './theme';
 import { DisclaimerBanner } from './components/DisclaimerBanner';
 import { KPISummary } from './components/KPISummary';
 import { UserTable } from './components/UserTable';
+import { GroupsTab } from './components/GroupsTab';
 import { UserDrawer } from './components/UserDrawer';
 import { SettingsModal } from './components/SettingsModal';
 import { PricingModal } from './components/PricingModal';
@@ -35,18 +40,31 @@ import { AuditModal } from './components/AuditModal';
 import { AddUserModal } from './components/AddUserModal';
 
 import {
+  createGroup,
   createUser,
+  deleteGroup,
   fetchConfig,
+  fetchGroups,
   fetchKPIs,
   fetchPricing,
   fetchUsers,
   publishAndSync,
   toggleUserLock,
   updateConfig,
+  updateGroup,
   updatePricing,
   updateUser,
 } from './services/api';
-import { AppConfig, KPIStats, ModelPricing, User, UserUpdatePayload } from './types';
+import {
+  AppConfig,
+  KPIStats,
+  ModelPricing,
+  QuotaGroup,
+  QuotaGroupCreateRequest,
+  QuotaGroupUpdateRequest,
+  User,
+  UserUpdatePayload,
+} from './types';
 
 export const App: React.FC = () => {
   // Theme Mode State
@@ -67,9 +85,14 @@ export const App: React.FC = () => {
   };
 
   const [users, setUsers] = useState<User[]>([]);
+  const [groups, setGroups] = useState<QuotaGroup[]>([]);
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [pricing, setPricing] = useState<Record<string, ModelPricing>>({});
   const [kpis, setKPIs] = useState<KPIStats | null>(null);
+
+  // Tab & Filter Navigation
+  const [currentTab, setCurrentTab] = useState<'users' | 'groups'>('users');
+  const [selectedGroupFilter, setSelectedGroupFilter] = useState<string | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
@@ -95,16 +118,18 @@ export const App: React.FC = () => {
 
   const loadData = async () => {
     try {
-      const [usersData, configData, pricingData, kpisData] = await Promise.all([
+      const [usersData, configData, pricingData, kpisData, groupsData] = await Promise.all([
         fetchUsers(),
         fetchConfig(),
         fetchPricing(),
         fetchKPIs(),
+        fetchGroups(),
       ]);
       setUsers(usersData);
       setConfig(configData);
       setPricing(pricingData);
       setKPIs(kpisData);
+      setGroups(groupsData);
     } catch (err) {
       console.error('Failed to load portal data:', err);
       showNotification('Failed to connect to backend service', 'error');
@@ -134,8 +159,9 @@ export const App: React.FC = () => {
       const updated = await updateUser(email, payload);
       setUsers((prev) => prev.map((u) => (u.email === updated.email ? updated : u)));
       setSelectedUser(updated);
-      const newKPIs = await fetchKPIs();
+      const [newKPIs, newGroups] = await Promise.all([fetchKPIs(), fetchGroups()]);
       setKPIs(newKPIs);
+      setGroups(newGroups);
       showNotification(
         `Changes saved for ${email}. Click "Publish & Sync" to reconcile Cloud Identity groups.`,
         'info'
@@ -163,6 +189,7 @@ export const App: React.FC = () => {
 
   const handleAddUser = async (payload: {
     email: string;
+    group_id?: string | null;
     is_exempt?: boolean;
     has_custom_quota?: boolean;
     custom_quota_usd?: number | null;
@@ -170,9 +197,58 @@ export const App: React.FC = () => {
   }) => {
     const created = await createUser(payload);
     setUsers((prev) => [created, ...prev]);
-    const newKPIs = await fetchKPIs();
+    const [newKPIs, newGroups] = await Promise.all([fetchKPIs(), fetchGroups()]);
     setKPIs(newKPIs);
+    setGroups(newGroups);
     showNotification(`Developer ${created.email} pre-provisioned successfully!`, 'success');
+  };
+
+  const handleCreateGroup = async (payload: QuotaGroupCreateRequest) => {
+    try {
+      const created = await createGroup(payload);
+      setGroups((prev) => [...prev, created]);
+      showNotification(`Quota group "${created.display_name}" created successfully.`, 'success');
+    } catch (e: any) {
+      showNotification(e.message || 'Failed to create quota group', 'error');
+      throw e;
+    }
+  };
+
+  const handleUpdateGroup = async (groupId: string, payload: QuotaGroupUpdateRequest) => {
+    try {
+      const updated = await updateGroup(groupId, payload);
+      setGroups((prev) => prev.map((g) => (g.group_id === groupId ? updated : g)));
+      const [usersData, kpisData] = await Promise.all([fetchUsers(), fetchKPIs()]);
+      setUsers(usersData);
+      setKPIs(kpisData);
+      showNotification(`Quota group "${updated.display_name}" updated successfully.`, 'success');
+    } catch (e: any) {
+      showNotification(e.message || 'Failed to update quota group', 'error');
+      throw e;
+    }
+  };
+
+  const handleDeleteGroup = async (groupId: string) => {
+    try {
+      await deleteGroup(groupId);
+      const [groupsData, usersData, kpisData] = await Promise.all([
+        fetchGroups(),
+        fetchUsers(),
+        fetchKPIs(),
+      ]);
+      setGroups(groupsData);
+      setUsers(usersData);
+      setKPIs(kpisData);
+      showNotification('Quota group deleted and members reassigned to Business Users.', 'info');
+    } catch (e: any) {
+      showNotification(e.message || 'Failed to delete quota group', 'error');
+      throw e;
+    }
+  };
+
+  const handleViewMembers = (groupId: string) => {
+    setSelectedGroupFilter(groupId);
+    setCurrentTab('users');
   };
 
   const handleSaveConfig = async (payload: Partial<AppConfig>) => {
@@ -394,19 +470,69 @@ export const App: React.FC = () => {
         <Container maxWidth="xl" sx={{ py: 3, flexGrow: 1 }}>
           <DisclaimerBanner />
           <KPISummary kpis={kpis} loading={loading} />
-          <UserTable
-            users={users}
-            nextResetUtc={kpis?.credit_pool?.next_reset_utc}
-            onSelectUser={handleSelectUser}
-            onToggleLock={handleToggleLock}
-            onToggleExempt={handleToggleExempt}
-            onOpenAddUser={() => setAddUserOpen(true)}
-          />
+
+          {/* Navigation Tabs: Users vs Groups */}
+          <Box sx={{ borderBottom: 1, borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#e2e8f0', mb: 3 }}>
+            <Tabs
+              value={currentTab}
+              onChange={(_, val) => setCurrentTab(val)}
+              textColor="primary"
+              indicatorColor="primary"
+              sx={{
+                '& .MuiTab-root': {
+                  textTransform: 'none',
+                  fontWeight: 600,
+                  fontSize: '0.95rem',
+                  py: 1.5,
+                  minHeight: 48,
+                },
+              }}
+            >
+              <Tab
+                value="users"
+                label={`Developers & Users (${users.length})`}
+                icon={<PeopleAltOutlinedIcon sx={{ fontSize: 19 }} />}
+                iconPosition="start"
+              />
+              <Tab
+                value="groups"
+                label={`Quota Groups (${groups.length})`}
+                icon={<FolderSharedOutlinedIcon sx={{ fontSize: 19 }} />}
+                iconPosition="start"
+              />
+            </Tabs>
+          </Box>
+
+          {/* Tab Content */}
+          {currentTab === 'users' ? (
+            <UserTable
+              users={users}
+              groups={groups}
+              selectedGroupId={selectedGroupFilter}
+              onSelectGroupId={setSelectedGroupFilter}
+              nextResetUtc={kpis?.credit_pool?.next_reset_utc}
+              onSelectUser={handleSelectUser}
+              onToggleLock={handleToggleLock}
+              onToggleExempt={handleToggleExempt}
+              onOpenAddUser={() => setAddUserOpen(true)}
+            />
+          ) : (
+            <GroupsTab
+              groups={groups}
+              loading={loading}
+              onRefresh={loadData}
+              onViewMembers={handleViewMembers}
+              onCreateGroup={handleCreateGroup}
+              onUpdateGroup={handleUpdateGroup}
+              onDeleteGroup={handleDeleteGroup}
+            />
+          )}
         </Container>
 
         {/* Drawer & Modals */}
         <UserDrawer
           user={selectedUser}
+          groups={groups}
           config={config}
           nextResetUtc={kpis?.credit_pool?.next_reset_utc}
           open={drawerOpen}
@@ -432,6 +558,7 @@ export const App: React.FC = () => {
 
         <AddUserModal
           config={config}
+          groups={groups}
           open={addUserOpen}
           onClose={() => setAddUserOpen(false)}
           onAdd={handleAddUser}

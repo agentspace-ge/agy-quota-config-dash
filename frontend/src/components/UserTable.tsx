@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Avatar,
   Box,
@@ -15,6 +15,7 @@ import {
   TableCell,
   TableContainer,
   TableHead,
+  TablePagination,
   TableRow,
   TableSortLabel,
   TextField,
@@ -31,10 +32,13 @@ import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import PersonAddOutlinedIcon from '@mui/icons-material/PersonAddOutlined';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import CheckIcon from '@mui/icons-material/Check';
-import { User } from '../types';
+import { QuotaGroup, User } from '../types';
 
 interface UserTableProps {
   users: User[];
+  groups?: QuotaGroup[];
+  selectedGroupId?: string | null;
+  onSelectGroupId?: (groupId: string | null) => void;
   nextResetUtc?: string | null;
   onSelectUser: (user: User) => void;
   onToggleLock: (email: string) => void;
@@ -44,6 +48,9 @@ interface UserTableProps {
 
 export const UserTable: React.FC<UserTableProps> = ({
   users,
+  groups = [],
+  selectedGroupId,
+  onSelectGroupId,
   nextResetUtc,
   onSelectUser,
   onToggleLock,
@@ -55,9 +62,19 @@ export const UserTable: React.FC<UserTableProps> = ({
 
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState<string>('ALL');
+  const [groupFilter, setGroupFilter] = useState<string>(selectedGroupId || 'ALL');
   const [sortField, setSortField] = useState<'gross_spend' | 'tokens' | 'email' | 'utilization' | 'remaining_credit'>('gross_spend');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(25);
   const [copiedEmail, setCopiedEmail] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (selectedGroupId !== undefined) {
+      setGroupFilter(selectedGroupId || 'ALL');
+      setPage(0);
+    }
+  }, [selectedGroupId]);
 
   // Menu action state
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
@@ -192,6 +209,59 @@ export const UserTable: React.FC<UserTableProps> = ({
     );
   };
 
+  const getGroupChip = (user: User) => {
+    const gid = user.group_id || 'business-users';
+    const group = groups.find((g) => g.group_id === gid);
+    const label = group?.display_name || (gid === 'developers' ? 'Developers' : gid === 'business-users' ? 'Business Users' : gid);
+
+    if (gid === 'developers') {
+      return (
+        <Chip
+          label={label}
+          size="small"
+          sx={{
+            backgroundColor: isDark ? 'rgba(99, 102, 241, 0.15)' : 'rgba(99, 102, 241, 0.1)',
+            color: isDark ? '#a5b4fc' : '#4f46e5',
+            border: `1px solid ${isDark ? 'rgba(99, 102, 241, 0.3)' : 'rgba(99, 102, 241, 0.25)'}`,
+            fontWeight: 600,
+            fontSize: '0.72rem',
+            height: 22,
+          }}
+        />
+      );
+    }
+    if (gid === 'business-users') {
+      return (
+        <Chip
+          label={label}
+          size="small"
+          sx={{
+            backgroundColor: isDark ? 'rgba(59, 130, 246, 0.15)' : 'rgba(59, 130, 246, 0.1)',
+            color: isDark ? '#93c5fd' : '#2563eb',
+            border: `1px solid ${isDark ? 'rgba(59, 130, 246, 0.3)' : 'rgba(59, 130, 246, 0.25)'}`,
+            fontWeight: 600,
+            fontSize: '0.72rem',
+            height: 22,
+          }}
+        />
+      );
+    }
+    return (
+      <Chip
+        label={label}
+        size="small"
+        sx={{
+          backgroundColor: isDark ? 'rgba(20, 184, 166, 0.15)' : 'rgba(20, 184, 166, 0.1)',
+          color: isDark ? '#5eead4' : '#0d9488',
+          border: `1px solid ${isDark ? 'rgba(20, 184, 166, 0.3)' : 'rgba(20, 184, 166, 0.25)'}`,
+          fontWeight: 600,
+          fontSize: '0.72rem',
+          height: 22,
+        }}
+      />
+    );
+  };
+
   // Status counts for filter chips
   const counts = {
     ALL: users.length,
@@ -206,6 +276,10 @@ export const UserTable: React.FC<UserTableProps> = ({
   const filteredUsers = users.filter((u) => {
     const matchesSearch = u.email.toLowerCase().includes(search.toLowerCase());
     if (!matchesSearch) return false;
+
+    if (groupFilter !== 'ALL' && (u.group_id || 'business-users') !== groupFilter) {
+      return false;
+    }
 
     if (filterStatus === 'ALL') return true;
     if (filterStatus === 'EXEMPT') return u.is_exempt;
@@ -233,6 +307,8 @@ export const UserTable: React.FC<UserTableProps> = ({
     return sortOrder === 'desc' ? -comp : comp;
   });
 
+  const paginatedUsers = filteredUsers.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
+
   return (
     <Paper
       elevation={0}
@@ -256,13 +332,16 @@ export const UserTable: React.FC<UserTableProps> = ({
           backgroundColor: isDark ? '#0b0f19' : '#fafafa',
         }}
       >
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flex: '1 1 280px', maxWidth: 420 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flex: '1 1 360px', maxWidth: 540 }}>
           <TextField
             size="small"
             fullWidth
             placeholder="Search developers by email... (Press / to focus)"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPage(0);
+            }}
             InputProps={{
               startAdornment: (
                 <InputAdornment position="start">
@@ -276,6 +355,35 @@ export const UserTable: React.FC<UserTableProps> = ({
               },
             }}
           />
+
+          <TextField
+            select
+            size="small"
+            value={groupFilter}
+            onChange={(e) => {
+              const val = e.target.value;
+              setGroupFilter(val);
+              setPage(0);
+              if (onSelectGroupId) {
+                onSelectGroupId(val === 'ALL' ? null : val);
+              }
+            }}
+            sx={{
+              minWidth: 150,
+              '& .MuiOutlinedInput-root': {
+                borderRadius: 2,
+                fontSize: '0.82rem',
+                backgroundColor: isDark ? '#111827' : '#ffffff',
+              },
+            }}
+          >
+            <MenuItem value="ALL">All Groups</MenuItem>
+            {groups.map((g) => (
+              <MenuItem key={g.group_id} value={g.group_id}>
+                {g.display_name}
+              </MenuItem>
+            ))}
+          </TextField>
         </Box>
 
         {/* Filter Pills with Live Counts */}
@@ -359,6 +467,7 @@ export const UserTable: React.FC<UserTableProps> = ({
                   Developer
                 </TableSortLabel>
               </TableCell>
+              <TableCell>Group</TableCell>
               <TableCell>Status</TableCell>
               <TableCell align="right">
                 <TableSortLabel
@@ -404,14 +513,14 @@ export const UserTable: React.FC<UserTableProps> = ({
           <TableBody>
             {filteredUsers.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={9} align="center" sx={{ py: 6 }}>
+                <TableCell colSpan={10} align="center" sx={{ py: 6 }}>
                   <Typography variant="body2" sx={{ color: isDark ? '#9ca3af' : '#64748b' }}>
                     No developers match the specified search or filter criteria.
                   </Typography>
                 </TableCell>
               </TableRow>
             ) : (
-              filteredUsers.map((user) => {
+              paginatedUsers.map((user) => {
                 const current = user.current_week;
                 const utilization = current.credit_utilization_percentage;
                 const isOver = current.net_billable_cost_usd > 0;
@@ -485,11 +594,14 @@ export const UserTable: React.FC<UserTableProps> = ({
                             variant="caption"
                             sx={{ color: isDark ? '#6b7280' : '#94a3b8', fontSize: '0.72rem' }}
                           >
-                            {user.has_custom_quota ? 'Custom Quota' : 'Org Default Quota'}
+                            {user.has_custom_quota ? 'Custom Quota Override' : 'Inherits Group Quota'}
                           </Typography>
                         </Box>
                       </Box>
                     </TableCell>
+
+                    {/* Quota Group */}
+                    <TableCell>{getGroupChip(user)}</TableCell>
 
                     {/* Status Chip */}
                     <TableCell>{getStatusChip(user)}</TableCell>
@@ -655,6 +767,23 @@ export const UserTable: React.FC<UserTableProps> = ({
           </TableBody>
         </Table>
       </TableContainer>
+
+      {/* Pagination Bar */}
+      <TablePagination
+        rowsPerPageOptions={[10, 25, 50, 100]}
+        component="div"
+        count={filteredUsers.length}
+        rowsPerPage={rowsPerPage}
+        page={page}
+        onPageChange={(_, newPage) => setPage(newPage)}
+        onRowsPerPageChange={(e) => {
+          setRowsPerPage(parseInt(e.target.value, 10));
+          setPage(0);
+        }}
+        sx={{
+          borderTop: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.06)' : '#f1f5f9'}`,
+        }}
+      />
 
       {/* Row Context Menu */}
       <Menu
