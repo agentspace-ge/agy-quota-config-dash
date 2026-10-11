@@ -29,10 +29,10 @@ scheduler = AsyncIOScheduler()
 def scheduled_evaluation_job():
     logger.info("Executing scheduled hourly background quota evaluation...")
     try:
-        evaluator = get_evaluator()
-        evaluator.run_evaluation(triggered_by="HOURLY_APS_CRON", is_publish=False)
         pool_client = get_pool_client()
         pool_client.get_pool_stats(force_refresh=True)
+        evaluator = get_evaluator()
+        evaluator.run_evaluation(triggered_by="HOURLY_APS_CRON", is_publish=False)
     except Exception as e:
         logger.error(f"Scheduled quota evaluation failed: {e}", exc_info=True)
 

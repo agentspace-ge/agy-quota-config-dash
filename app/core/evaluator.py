@@ -7,10 +7,16 @@ from typing import Any
 
 from app.core.cost_model import calculate_total_usage_costs
 from app.core.state_machine import evaluate_user_state_and_group
-from app.core.timezone_engine import get_current_week_window, is_new_week
+from app.core.timezone_engine import (
+    get_current_week_window,
+    is_new_pool_cycle,
+    is_new_week,
+    resolve_pool_window,
+)
 from app.db.models import (
     AppConfig,
     AuditEvent,
+    CreditPoolStats,
     CurrentWeekUsage,
     EvaluationResult,
     User,
@@ -24,10 +30,17 @@ logger = logging.getLogger(__name__)
 class QuotaEvaluator:
     """Core evaluation engine that reconciles BigQuery usage against Firestore quotas."""
 
-    def __init__(self, db_client: Any, bq_client: Any, identity_client: Any):
+    def __init__(
+        self,
+        db_client: Any,
+        bq_client: Any,
+        identity_client: Any,
+        pool_client: Any = None,
+    ):
         self.db = db_client
         self.bq = bq_client
         self.identity = identity_client
+        self.pool_client = pool_client
 
     def run_evaluation(
         self,
@@ -40,7 +53,21 @@ class QuotaEvaluator:
 
         try:
             config: AppConfig = self.db.get_config()
-            week_id, start_utc, end_utc, now_utc = get_current_week_window(config.timezone, eval_time)
+
+            # Resolve active weekly window from upstream Credit Pool or fallback
+            pool_stats: CreditPoolStats | None = None
+            if self.pool_client is not None:
+                try:
+                    pool_stats = self.pool_client.get_pool_stats()
+                except Exception as e:
+                    logger.warning(f"Failed to fetch pool stats from pool_client: {e}")
+            if pool_stats is None:
+                try:
+                    pool_stats = self.db.get_credit_pool()
+                except Exception as e:
+                    logger.warning(f"Failed to fetch pool stats from db: {e}")
+
+            week_id, start_utc, end_utc, now_utc = resolve_pool_window(pool_stats, config.timezone, eval_time)
 
             # 1. Fetch BigQuery usage for the current weekly window
             usage_records = self.bq.fetch_weekly_usage(start_utc, now_utc)
@@ -80,6 +107,7 @@ class QuotaEvaluator:
                         custom_overage_usd=None,
                         current_week=CurrentWeekUsage(
                             week_id=week_id,
+                            window_start_utc=start_utc,
                             quota_credits_usd=config.default_quota_usd,
                             overage_buffer_usd=config.default_overage_usd,
                         ),
@@ -107,9 +135,19 @@ class QuotaEvaluator:
             updated_users_to_save: list[User] = []
 
             for email, user in users_map.items():
-                # Check for Weekly Reset (Monday 00:00 boundary crossover)
+                # Check for Weekly Reset (Pool Cycle Reset or legacy week ID mismatch)
                 weekly_reset_applied = False
-                if is_new_week(user.current_week.week_id, week_id):
+                if user.current_week.window_start_utc is not None:
+                    weekly_reset_applied = is_new_pool_cycle(
+                        user.current_week.window_start_utc,
+                        start_utc,
+                        now_utc,
+                        end_utc,
+                    )
+                elif user.current_week.week_id:
+                    weekly_reset_applied = is_new_week(user.current_week.week_id, week_id)
+
+                if weekly_reset_applied:
                     # Snapshot previous week
                     if user.current_week.week_id:
                         snapshot = WeeklySnapshot(
@@ -166,6 +204,7 @@ class QuotaEvaluator:
 
                 # Update current week usage object
                 user.current_week.week_id = week_id
+                user.current_week.window_start_utc = start_utc
                 user.current_week.total_tokens = bq_data["total_tokens"]
                 user.current_week.total_requests = bq_data["total_requests"]
                 user.current_week.gross_spend_usd = gross_spend
