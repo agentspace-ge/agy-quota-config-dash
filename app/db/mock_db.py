@@ -3,12 +3,15 @@
 import threading
 from datetime import UTC, datetime, timedelta
 
+from pydantic import BaseModel
+
 from app.audit.emitter import BaseAuditEmitter
 from app.db.models import (
     AppConfig,
     AuditEvent,
     CreditPoolStats,
     CurrentWeekUsage,
+    QuotaGroup,
     SpendBreakdown,
     User,
     UserStatus,
@@ -23,16 +26,45 @@ class MockDatabase:
         self._lock = threading.RLock()
         self.audit_emitter = audit_emitter
         self._config: AppConfig = AppConfig()
+        self._groups: dict[str, QuotaGroup] = {}
         self._users: dict[str, User] = {}
         self._audit_events: list[AuditEvent] = []
         self._snapshots: dict[str, list[WeeklySnapshot]] = {}
         self._credit_pool: CreditPoolStats | None = None
         self._init_mock_data()
 
+    def _init_default_groups(self, now: datetime | None = None):
+        if not now:
+            now = datetime.now(UTC)
+        if not self._groups:
+            self._groups["developers"] = QuotaGroup(
+                group_id="developers",
+                display_name="Developers",
+                description="Engineering and development teams with higher inference quotas",
+                weekly_quota_usd=50.0,
+                overage_buffer_usd=10.0,
+                is_exempt=False,
+                iam_group_email=None,
+                created_at=now - timedelta(days=90),
+                updated_at=now,
+            )
+            self._groups["business-users"] = QuotaGroup(
+                group_id="business-users",
+                display_name="Business Users",
+                description="Standard business users with standard tier quotas",
+                weekly_quota_usd=10.0,
+                overage_buffer_usd=2.0,
+                is_exempt=False,
+                iam_group_email=None,
+                created_at=now - timedelta(days=90),
+                updated_at=now,
+            )
 
     def _init_mock_data(self):
-        """Seed realistic demo users for the sandbox environment."""
+        """Seed realistic demo users and groups for the sandbox environment."""
         now = datetime.now(UTC)
+        self._init_default_groups(now)
+
         # Compute realistic start/reset timestamps matching current weekly cycle (Saturday cycle)
         days_since_cycle = (now.weekday() - 5) % 7
         cycle_start = (now - timedelta(days=days_since_cycle)).replace(hour=12, minute=47, second=20, microsecond=0)
@@ -58,6 +90,7 @@ class MockDatabase:
         alice_tokens = {"gemini-3-pro": 2500000, "gemini-3.6-flash": 1500000}
         self._users["alice.chen@example.com"] = User(
             email="alice.chen@example.com",
+            group_id="developers",
             status=UserStatus.ACTIVE,
             is_exempt=False,
             has_custom_quota=True,
@@ -91,6 +124,7 @@ class MockDatabase:
         bob_tokens = {"gemini-3-pro": 3800000}
         self._users["bob.martin@example.com"] = User(
             email="bob.martin@example.com",
+            group_id="developers",
             status=UserStatus.ACTIVE,
             is_exempt=False,
             has_custom_quota=False,
@@ -124,6 +158,7 @@ class MockDatabase:
         charlie_tokens = {"gemini-3-pro": 5500000, "gemini-2.5-pro": 1000000}
         self._users["charlie.davis@example.com"] = User(
             email="charlie.davis@example.com",
+            group_id="business-users",
             status=UserStatus.AUTO_DISABLED,
             is_exempt=False,
             has_custom_quota=False,
@@ -157,6 +192,7 @@ class MockDatabase:
         dana_tokens = {"gemini-3-pro": 12000000}
         self._users["dana.scully@example.com"] = User(
             email="dana.scully@example.com",
+            group_id="developers",
             status=UserStatus.ACTIVE,
             is_exempt=True,
             has_custom_quota=False,
@@ -189,6 +225,7 @@ class MockDatabase:
         # 5. Evan - Manually Disabled by Security Admin
         self._users["evan.wright@example.com"] = User(
             email="evan.wright@example.com",
+            group_id="business-users",
             status=UserStatus.MANUALLY_DISABLED,
             is_exempt=False,
             has_custom_quota=False,
@@ -227,8 +264,8 @@ class MockDatabase:
                 triggered_by="SYSTEM_WORKER",
                 target_user="charlie.davis@example.com",
                 details={
-                    "from_group": "antigravity-enabled@example.com",
-                    "to_group": "antigravity-disabled@example.com",
+                    "from_group": "antigravity-active@example.com",
+                    "to_group": "antigravity-throttled@example.com",
                     "reason": "HARD_LIMIT_BREACHED: Spend $14.95 >= Limit $12.00",
                 },
             )
@@ -315,4 +352,108 @@ class MockDatabase:
     def save_credit_pool(self, pool: CreditPoolStats) -> None:
         with self._lock:
             self._credit_pool = pool.model_copy(deep=True)
+
+    def _enrich_group_stats(self, group: QuotaGroup) -> QuotaGroup:
+        """Enrich a group with live aggregated stats from user records."""
+        member_count = 0
+        gross_spend = 0.0
+        total_tokens = 0
+        for user in self._users.values():
+            if user.group_id == group.group_id:
+                member_count += 1
+                gross_spend += user.current_week.gross_spend_usd
+                total_tokens += user.current_week.total_tokens
+        group.member_count = member_count
+        group.gross_spend_usd = round(gross_spend, 4)
+        group.total_tokens = total_tokens
+        return group
+
+    def list_groups(self) -> list[QuotaGroup]:
+        with self._lock:
+            result = []
+            for group in self._groups.values():
+                copied = group.model_copy(deep=True)
+                result.append(self._enrich_group_stats(copied))
+            return result
+
+    def get_group(self, group_id: str) -> QuotaGroup | None:
+        with self._lock:
+            group = self._groups.get(group_id.strip().lower())
+            if not group:
+                return None
+            copied = group.model_copy(deep=True)
+            return self._enrich_group_stats(copied)
+
+    def create_group(self, group: QuotaGroup) -> QuotaGroup:
+        with self._lock:
+            key = group.group_id.strip().lower()
+            now = datetime.now(UTC)
+            group.created_at = now
+            group.updated_at = now
+            self._groups[key] = group.model_copy(deep=True)
+            copied = self._groups[key].model_copy(deep=True)
+            return self._enrich_group_stats(copied)
+
+    def update_group(self, group_id: str, updates: dict) -> QuotaGroup | None:
+        with self._lock:
+            key = group_id.strip().lower()
+            group = self._groups.get(key)
+            if not group:
+                return None
+            group_data = group.model_dump()
+            for k, v in updates.items():
+                if v is not None and k in group_data and k not in ("group_id", "created_at"):
+                    group_data[k] = v
+            group_data["updated_at"] = datetime.now(UTC)
+            self._groups[key] = QuotaGroup(**group_data)
+            copied = self._groups[key].model_copy(deep=True)
+            return self._enrich_group_stats(copied)
+
+    def delete_group(self, group_id: str) -> bool:
+        with self._lock:
+            key = group_id.strip().lower()
+            # Protect default group
+            if key == "business-users":
+                return False
+            if key not in self._groups:
+                return False
+            del self._groups[key]
+            # Reassign members of deleted group to business-users
+            now = datetime.now(UTC)
+            for user in self._users.values():
+                if user.group_id == key:
+                    user.group_id = "business-users"
+                    user.updated_at = now
+            return True
+
+    def bulk_assign_group_members(self, group_id: str, emails: list[str]) -> int:
+        with self._lock:
+            now = datetime.now(UTC)
+            count = 0
+            for email in emails:
+                clean_email = email.strip().lower()
+                if not clean_email:
+                    continue
+                if clean_email in self._users:
+                    self._users[clean_email].group_id = group_id
+                    self._users[clean_email].updated_at = now
+                else:
+                    self._users[clean_email] = User(
+                        email=clean_email,
+                        group_id=group_id,
+                        status=UserStatus.ACTIVE,
+                        is_exempt=False,
+                        has_custom_quota=False,
+                        current_week=CurrentWeekUsage(
+                            week_id="2026-W41",
+                            quota_credits_usd=10.0,
+                            remaining_credit_usd=10.0,
+                            overage_buffer_usd=2.0,
+                            window_start_utc=now,
+                        ),
+                        created_at=now,
+                        updated_at=now,
+                    )
+                count += 1
+            return count
 

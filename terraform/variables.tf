@@ -30,6 +30,7 @@ variable "manage_cloud_identity_groups" {
 variable "enabled_group_email" {
   type        = string
   description = "Cloud Identity group email for active developers with roles/businessaicode.user"
+  default     = "antigravity-active@example.com"
 }
 
 variable "enabled_group_display_name" {
@@ -47,6 +48,7 @@ variable "enabled_group_description" {
 variable "disabled_group_email" {
   type        = string
   description = "Cloud Identity group email for throttled/locked developers"
+  default     = "antigravity-throttled@example.com"
 }
 
 variable "disabled_group_display_name" {

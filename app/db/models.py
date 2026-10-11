@@ -130,8 +130,30 @@ class WeeklySnapshot(BaseModel):
     snapshot_timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
+class QuotaGroupStats(BaseModel):
+    member_count: int = 0
+    gross_spend_usd: float = 0.0
+    total_tokens: int = 0
+
+
+class QuotaGroup(BaseModel):
+    group_id: str
+    display_name: str
+    description: str = ""
+    weekly_quota_usd: float = 10.0
+    overage_buffer_usd: float = 2.0
+    is_exempt: bool = False
+    iam_group_email: str | None = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    member_count: int = 0
+    gross_spend_usd: float = 0.0
+    total_tokens: int = 0
+
+
 class User(BaseModel):
     email: str
+    group_id: str | None = "business-users"
     status: UserStatus = UserStatus.ACTIVE
     is_exempt: bool = False
     has_custom_quota: bool = False
@@ -145,8 +167,8 @@ class User(BaseModel):
 class AppConfig(BaseModel):
     doc_id: str = "app_config"
     timezone: str = "America/Los_Angeles"
-    enabled_group: str = "antigravity-enabled@example.com"
-    disabled_group: str = "antigravity-disabled@example.com"
+    enabled_group: str = "antigravity-active@example.com"
+    disabled_group: str = "antigravity-throttled@example.com"
     default_quota_usd: float = 10.00
     default_overage_usd: float = 2.00
     preset_quotas: list[float] = Field(default_factory=lambda: [10.0, 15.0, 25.0, 50.0, 100.0])
@@ -190,13 +212,13 @@ class KPIStats(BaseModel):
     credit_pool: CreditPoolStats | None = None
 
 
-
 class UserUpdateRequest(BaseModel):
     is_exempt: bool | None = None
     status: UserStatus | None = None
     has_custom_quota: bool | None = None
     custom_quota_usd: float | None = None
     custom_overage_usd: float | None = None
+    group_id: str | None = None
 
 
 class UserCreateRequest(BaseModel):
@@ -205,6 +227,31 @@ class UserCreateRequest(BaseModel):
     has_custom_quota: bool = False
     custom_quota_usd: float | None = None
     custom_overage_usd: float | None = None
+    group_id: str | None = None
+
+
+class QuotaGroupCreateRequest(BaseModel):
+    group_id: str
+    display_name: str
+    description: str = ""
+    weekly_quota_usd: float = 10.0
+    overage_buffer_usd: float = 2.0
+    is_exempt: bool = False
+    iam_group_email: str | None = None
+
+
+class QuotaGroupUpdateRequest(BaseModel):
+    display_name: str | None = None
+    description: str | None = None
+    weekly_quota_usd: float | None = None
+    overage_buffer_usd: float | None = None
+    is_exempt: bool | None = None
+    iam_group_email: str | None = None
+
+
+class QuotaGroupMembersRequest(BaseModel):
+    emails: list[str]
+    action: str = "add"  # "add", "remove", "replace"
 
 
 class ConfigUpdateRequest(BaseModel):
@@ -225,3 +272,4 @@ class EvaluationResult(BaseModel):
     changes: list[dict] = Field(default_factory=list)
     success: bool = True
     error: str | None = None
+

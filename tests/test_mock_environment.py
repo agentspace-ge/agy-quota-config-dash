@@ -186,3 +186,88 @@ def test_mock_evaluator_end_to_end_pool_aligned():
     # Evan must remain MANUALLY_DISABLED
     evan_after = db.get_user("evan.wright@example.com")
     assert evan_after.status == UserStatus.MANUALLY_DISABLED
+
+
+def test_mock_database_group_storage_and_seeding():
+    """Verify MockDatabase initializes with default quota groups, gatekeeper defaults, and CRUD."""
+    from app.db.models import QuotaGroup
+
+    db = MockDatabase()
+
+    # 1. Verify default groups auto-seeded
+    groups = db.list_groups()
+    group_map = {g.group_id: g for g in groups}
+    assert "developers" in group_map
+    assert "business-users" in group_map
+
+    dev_group = group_map["developers"]
+    assert dev_group.display_name == "Developers"
+    assert dev_group.weekly_quota_usd == 50.0
+    assert dev_group.overage_buffer_usd == 10.0
+    assert "Engineering" in dev_group.description
+
+    biz_group = group_map["business-users"]
+    assert biz_group.display_name == "Business Users"
+    assert biz_group.weekly_quota_usd == 10.0
+    assert biz_group.overage_buffer_usd == 2.0
+
+    # 2. Verify AppConfig default gatekeeper emails
+    config = db.get_config()
+    assert config.enabled_group == "antigravity-active@example.com"
+    assert config.disabled_group == "antigravity-throttled@example.com"
+
+    # 3. Verify seeded mock users have group_id assigned
+    alice = db.get_user("alice.chen@example.com")
+    charlie = db.get_user("charlie.davis@example.com")
+    assert alice is not None
+    assert alice.group_id == "developers"
+    assert charlie is not None
+    assert charlie.group_id == "business-users"
+
+    # 4. Verify aggregated group stats
+    fetched_dev = db.get_group("developers")
+    assert fetched_dev is not None
+    assert fetched_dev.member_count >= 1
+    assert fetched_dev.gross_spend_usd > 0
+    assert fetched_dev.total_tokens > 0
+
+    # 5. Create new group
+    new_group = QuotaGroup(
+        group_id="qa-testers",
+        display_name="QA Testers",
+        description="Quality assurance team",
+        weekly_quota_usd=20.0,
+        overage_buffer_usd=4.0,
+        is_exempt=False,
+    )
+    created = db.create_group(new_group)
+    assert created.group_id == "qa-testers"
+    assert db.get_group("qa-testers") is not None
+
+    # 6. Update group
+    updated = db.update_group("qa-testers", {"weekly_quota_usd": 30.0, "display_name": "QA Engineers"})
+    assert updated is not None
+    assert updated.weekly_quota_usd == 30.0
+    assert updated.display_name == "QA Engineers"
+
+    # 7. Bulk assign members
+    count = db.bulk_assign_group_members("qa-testers", ["alice.chen@example.com", "new.qa@example.com"])
+    assert count == 2
+    alice_updated = db.get_user("alice.chen@example.com")
+    assert alice_updated.group_id == "qa-testers"
+    new_qa = db.get_user("new.qa@example.com")
+    assert new_qa is not None
+    assert new_qa.group_id == "qa-testers"
+
+    # 8. Delete group and member reassignment
+    # Protection: Cannot delete "business-users" default group
+    assert db.delete_group("business-users") is False
+
+    # Deleting "qa-testers" reassigns members to "business-users"
+    assert db.delete_group("qa-testers") is True
+    assert db.get_group("qa-testers") is None
+    reassigned_alice = db.get_user("alice.chen@example.com")
+    assert reassigned_alice.group_id == "business-users"
+    reassigned_qa = db.get_user("new.qa@example.com")
+    assert reassigned_qa.group_id == "business-users"
+
