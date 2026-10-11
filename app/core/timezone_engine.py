@@ -1,6 +1,7 @@
 """Timezone and weekly boundary calculation engine."""
 
 from datetime import UTC, datetime, time, timedelta
+from typing import Any
 
 import pytz
 
