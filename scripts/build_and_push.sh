@@ -29,12 +29,12 @@ if command -v podman &>/dev/null; then
   echo "==> Using Podman to build and push..."
   gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet || true
   gcloud auth print-access-token | podman login -u oauth2accesstoken --password-stdin "${REGION}-docker.pkg.dev"
-  podman build -t "${IMAGE_URI}" -f Dockerfile .
+  podman build --platform linux/amd64 -t "${IMAGE_URI}" -f Dockerfile .
   podman push "${IMAGE_URI}"
 elif command -v docker &>/dev/null && docker info &>/dev/null; then
   echo "==> Using local Docker to build and push..."
   gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet || true
-  docker build -t "${IMAGE_URI}" -f Dockerfile .
+  docker build --platform linux/amd64 -t "${IMAGE_URI}" -f Dockerfile .
   docker push "${IMAGE_URI}"
 else
   echo "==> Local container engine unavailable. Using Google Cloud Build..."
