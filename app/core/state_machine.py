@@ -66,11 +66,11 @@ def evaluate_user_state_and_group(
         group_changed = current_in_enabled_group  # should NOT be in enabled group
         return StateTransitionResult(new_status, target_group, state_changed, group_changed, reason)
 
-    # 3. Weekly Reset Check (Monday 00:00)
+    # 3. Weekly Reset Check (Credit Pool Cycle Reset)
     if is_weekly_reset:
         new_status = UserStatus.ACTIVE
         target_group = "ENABLED"
-        reason = "WEEKLY_MONDAY_RESET"
+        reason = "WEEKLY_POOL_RESET"
         state_changed = current_status != new_status
         group_changed = not current_in_enabled_group
         return StateTransitionResult(new_status, target_group, state_changed, group_changed, reason)
