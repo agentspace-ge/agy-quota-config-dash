@@ -25,6 +25,20 @@ def test_get_user_detail(client):
     assert user["current_week"]["quota_credits_usd"] == 25.0
 
 
+def test_create_user_sets_window_start_utc(client):
+    payload = {
+        "email": "new.developer@example.com",
+        "is_exempt": False,
+        "has_custom_quota": False,
+    }
+    response = client.post("/api/users", json=payload)
+    assert response.status_code == 201
+    user = response.json()
+    assert user["email"] == "new.developer@example.com"
+    assert user["current_week"]["window_start_utc"] is not None
+    assert "week_id" in user["current_week"]
+
+
 def test_update_user_quota(client):
     payload = {
         "has_custom_quota": True,
