@@ -120,7 +120,7 @@ def is_new_pool_cycle(
     3. Hybrid proactive check: if now_utc >= next_reset_utc and next_reset_utc > prev_window_start_utc: True.
     4. Otherwise: False.
     """
-    if prev_window_start_utc is None:
+    if prev_window_start_utc is None or current_window_start_utc is None:
         return False
 
     if prev_window_start_utc.tzinfo is None:

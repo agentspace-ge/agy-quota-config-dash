@@ -419,3 +419,24 @@ def test_evaluator_smooth_cutover_initial_run(mock_db, mock_bq, mock_identity):
     updated = mock_db.get_user("existing.legacy@example.com")
     assert updated.current_week.window_start_utc == t0
 
+
+def test_evaluator_pool_client_exception_fallback(mock_db, mock_bq, mock_identity):
+    """Verify evaluator handles pool_client exceptions gracefully and falls back to calendar week."""
+    from unittest.mock import MagicMock
+    from app.core.evaluator import QuotaEvaluator
+
+    mock_pool = MagicMock()
+    mock_pool.get_pool_stats.side_effect = RuntimeError("Cloud Monitoring API 503")
+
+    evaluator = QuotaEvaluator(
+        db_client=mock_db,
+        bq_client=mock_bq,
+        identity_client=mock_identity,
+        pool_client=mock_pool,
+    )
+
+    result = evaluator.run_evaluation(triggered_by="offline_test")
+    assert result.success is True
+    # Evaluator ran successfully despite pool client error
+    assert result.users_evaluated > 0
+

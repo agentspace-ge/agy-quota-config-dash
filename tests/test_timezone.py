@@ -81,3 +81,42 @@ def test_is_new_pool_cycle_monotonic_and_hybrid():
     now_after_expiry = reset_t0 + timedelta(minutes=5)
     assert is_new_pool_cycle(t0, t0, now_after_expiry, reset_t0) is True
 
+
+def test_resolve_pool_window_edge_cases():
+    """Verify resolve_pool_window handles naive datetimes, missing next_reset, and expired windows."""
+    # 1. Missing next_reset_utc calculates start + 7 days
+    start_time = datetime(2026, 10, 1, 10, 0, 0, tzinfo=UTC)
+    stats_no_reset = CreditPoolStats(window_start_utc=start_time, next_reset_utc=None)
+    _, start_res, end_res, _ = resolve_pool_window(stats_no_reset, "UTC", start_time + timedelta(days=1))
+    assert end_res == start_time + timedelta(days=7)
+
+    # 2. Naive datetime for now
+    naive_now = datetime(2026, 10, 2, 10, 0, 0)
+    _, _, _, now_utc = resolve_pool_window(stats_no_reset, "UTC", naive_now)
+    assert now_utc.tzinfo == UTC
+
+    # 3. Naive window_start_utc
+    stats_naive = CreditPoolStats(window_start_utc=datetime(2026, 10, 1, 10, 0, 0))
+    _, start_naive, _, _ = resolve_pool_window(stats_naive, "UTC", naive_now)
+    assert start_naive.tzinfo == UTC
+
+    # 4. Window boundaries preserve pool stats verbatim even if now is past reset
+    expired_now = start_time + timedelta(days=8)
+    _, start_exp, end_exp, _ = resolve_pool_window(stats_no_reset, "UTC", expired_now)
+    assert start_exp == start_time
+    assert end_exp == start_time + timedelta(days=7)
+
+
+def test_is_new_pool_cycle_edge_cases():
+    """Verify is_new_pool_cycle edge cases with None values and naive datetimes."""
+    t0 = datetime(2026, 10, 1, 10, 0, 0, tzinfo=UTC)
+    t1 = t0 + timedelta(days=7)
+
+    # Current window start is None
+    assert is_new_pool_cycle(t0, None, t1, t1) is False
+
+    # Naive datetimes converted safely
+    t0_naive = datetime(2026, 10, 1, 10, 0, 0)
+    t1_naive = datetime(2026, 10, 8, 10, 0, 0)
+    assert is_new_pool_cycle(t0_naive, t1_naive, t1_naive, t1_naive + timedelta(days=7)) is True
+
