@@ -14,6 +14,7 @@ from app.api.deps import get_evaluator, get_pool_client
 from app.api.routes_audit import router as audit_router
 from app.api.routes_config import router as config_router
 from app.api.routes_evaluator import router as evaluator_router
+from app.api.routes_groups import router as groups_router
 from app.api.routes_users import router as users_router
 from app.config import settings
 
@@ -80,6 +81,7 @@ app.add_middleware(
 
 # Register API Routers
 app.include_router(users_router)
+app.include_router(groups_router)
 app.include_router(config_router)
 app.include_router(evaluator_router)
 app.include_router(audit_router)

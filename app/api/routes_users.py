@@ -24,6 +24,7 @@ def list_users(
     search: str | None = Query(None, description="Search by email"),
     status: str | None = Query(None, description="Filter by status (ACTIVE, AUTO_DISABLED, MANUALLY_DISABLED)"),
     exempt_only: bool | None = Query(None, description="Filter only exempt users"),
+    group_id: str | None = Query(None, description="Filter by group_id"),
     sort_by: str = Query("gross_spend", description="Field to sort by (gross_spend, tokens, email, utilization)"),
     sort_order: str = Query("desc", description="Sort order (asc, desc)"),
     db=Depends(get_db),
@@ -41,6 +42,10 @@ def list_users(
 
     if exempt_only is not None:
         users = [u for u in users if u.is_exempt == exempt_only]
+
+    if group_id:
+        gid = group_id.lower().strip()
+        users = [u for u in users if u.group_id and u.group_id.lower() == gid]
 
     # Sorting
     reverse = sort_order.lower() == "desc"
@@ -93,19 +98,26 @@ def create_user(
 
     week_id, start_utc, _, _ = resolve_pool_window(pool_stats, config.timezone, now)
 
-    quota = (
-        payload.custom_quota_usd
-        if payload.has_custom_quota and payload.custom_quota_usd is not None
-        else config.default_quota_usd
-    )
-    overage = (
-        payload.custom_overage_usd
-        if payload.has_custom_quota and payload.custom_overage_usd is not None
-        else config.default_overage_usd
-    )
+    gid = (payload.group_id or "business-users").strip().lower()
+    group = db.get_group(gid) if hasattr(db, "get_group") else None
+
+    if payload.has_custom_quota and payload.custom_quota_usd is not None:
+        quota = payload.custom_quota_usd
+        overage = (
+            payload.custom_overage_usd
+            if payload.custom_overage_usd is not None
+            else (group.overage_buffer_usd if group else config.default_overage_usd)
+        )
+    elif group:
+        quota = group.weekly_quota_usd
+        overage = group.overage_buffer_usd
+    else:
+        quota = config.default_quota_usd
+        overage = config.default_overage_usd
 
     new_user = User(
         email=payload.email.lower().strip(),
+        group_id=gid,
         status=UserStatus.ACTIVE,
         is_exempt=payload.is_exempt,
         has_custom_quota=payload.has_custom_quota,
@@ -156,12 +168,14 @@ def update_user(
     # Track updates for audit
     update_details = {}
 
+    if payload.group_id is not None and payload.group_id != user.group_id:
+        new_gid = payload.group_id.strip().lower()
+        update_details["group_id"] = {"from": user.group_id, "to": new_gid}
+        user.group_id = new_gid
+
     if payload.is_exempt is not None and payload.is_exempt != user.is_exempt:
         update_details["is_exempt"] = {"from": user.is_exempt, "to": payload.is_exempt}
         user.is_exempt = payload.is_exempt
-        if user.is_exempt and user.status == UserStatus.AUTO_DISABLED:
-            user.status = UserStatus.ACTIVE
-            identity.reconcile_user_group(user.email, "ENABLED")
 
     if payload.status is not None and payload.status != user.status:
         update_details["status"] = {"from": user.status.value, "to": payload.status.value}
@@ -183,17 +197,28 @@ def update_user(
         user.custom_overage_usd = payload.custom_overage_usd
         update_details["custom_overage_usd"] = payload.custom_overage_usd
 
-    # Recalculate credit and net spend based on new quota
-    effective_quota = (
-        user.custom_quota_usd
-        if user.has_custom_quota and user.custom_quota_usd is not None
-        else config.default_quota_usd
-    )
-    effective_overage = (
-        user.custom_overage_usd
-        if user.has_custom_quota and user.custom_overage_usd is not None
-        else config.default_overage_usd
-    )
+    # Resolve group for effective quota and exemption calculation
+    group = db.get_group(user.group_id) if hasattr(db, "get_group") and user.group_id else None
+
+    # Recalculate credit and net spend based on 3-tier precedence
+    if user.has_custom_quota and user.custom_quota_usd is not None:
+        effective_quota = user.custom_quota_usd
+        effective_overage = (
+            user.custom_overage_usd
+            if user.custom_overage_usd is not None
+            else (group.overage_buffer_usd if group else config.default_overage_usd)
+        )
+    elif group is not None:
+        effective_quota = group.weekly_quota_usd
+        effective_overage = group.overage_buffer_usd
+    else:
+        effective_quota = config.default_quota_usd
+        effective_overage = config.default_overage_usd
+
+    effective_exempt = user.is_exempt or (group.is_exempt if group else False)
+    if effective_exempt and user.status == UserStatus.AUTO_DISABLED:
+        user.status = UserStatus.ACTIVE
+        identity.reconcile_user_group(user.email, "ENABLED")
 
     user.current_week.quota_credits_usd = effective_quota
     user.current_week.overage_buffer_usd = effective_overage
