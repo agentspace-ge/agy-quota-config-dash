@@ -91,15 +91,23 @@ class QuotaEvaluator:
                     if curr_last is None or record.last_active > curr_last:
                         user_bq_data[email]["last_active"] = record.last_active
 
-            # 2. Fetch all known users from Database
+            # 2. Fetch all known users and groups from Database
             existing_users_list = self.db.list_users()
             users_map: dict[str, User] = {u.email.lower().strip(): u for u in existing_users_list}
+            groups_list = self.db.list_groups() if hasattr(self.db, "list_groups") else []
+            groups_map = {g.group_id.lower().strip(): g for g in groups_list}
+            default_group_id = (
+                "business-users"
+                if "business-users" in groups_map
+                else (groups_list[0].group_id if groups_list else None)
+            )
 
             # 3. Discover new users from BigQuery logs (Synthetic Discovery)
             for email in user_bq_data:
                 if email not in users_map:
                     new_user = User(
                         email=email,
+                        group_id=default_group_id,
                         status=UserStatus.ACTIVE,
                         is_exempt=False,
                         has_custom_quota=False,
@@ -163,17 +171,25 @@ class QuotaEvaluator:
 
                     weekly_reset_applied = True
 
-                # Determine effective quota and overage
-                quota_credits = (
-                    user.custom_quota_usd
-                    if user.has_custom_quota and user.custom_quota_usd is not None
-                    else config.default_quota_usd
-                )
-                overage_buffer = (
-                    user.custom_overage_usd
-                    if user.has_custom_quota and user.custom_overage_usd is not None
-                    else config.default_overage_usd
-                )
+                # Determine effective group
+                group = groups_map.get(user.group_id.lower().strip()) if user.group_id else None
+
+                # Determine effective quota and overage (3-tier: User Custom > Group Quota > Global Default)
+                if user.has_custom_quota and user.custom_quota_usd is not None:
+                    quota_credits = user.custom_quota_usd
+                    overage_buffer = (
+                        user.custom_overage_usd
+                        if user.custom_overage_usd is not None
+                        else (group.overage_buffer_usd if group else config.default_overage_usd)
+                    )
+                elif group is not None:
+                    quota_credits = group.weekly_quota_usd
+                    overage_buffer = group.overage_buffer_usd
+                else:
+                    quota_credits = config.default_quota_usd
+                    overage_buffer = config.default_overage_usd
+
+                effective_is_exempt = user.is_exempt or (group.is_exempt if group else False)
 
                 # Get usage data
                 bq_data = user_bq_data.get(
@@ -224,7 +240,7 @@ class QuotaEvaluator:
                 transition = evaluate_user_state_and_group(
                     current_status=user.status,
                     current_in_enabled_group=current_in_enabled,
-                    is_exempt=user.is_exempt,
+                    is_exempt=effective_is_exempt,
                     gross_spend_usd=gross_spend,
                     quota_credits_usd=quota_credits,
                     overage_buffer_usd=overage_buffer,

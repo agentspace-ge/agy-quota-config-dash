@@ -438,5 +438,157 @@ def test_evaluator_pool_client_exception_fallback(mock_db, mock_bq, mock_identit
     result = evaluator.run_evaluation(triggered_by="offline_test")
     assert result.success is True
     # Evaluator ran successfully despite pool client error
-    assert result.users_evaluated > 0
+
+
+def test_evaluator_group_quota_inheritance(mock_db, mock_bq, mock_identity):
+    """Verify that a user without custom quota inherits their group's quota."""
+    from app.bq.bq_client import UserUsageRecord
+    from app.core.evaluator import QuotaEvaluator
+    from app.db.models import CurrentWeekUsage, QuotaGroup, User, UserStatus
+
+    # Create a research group with $75 weekly quota
+    mock_db.create_group(
+        QuotaGroup(
+            group_id="research",
+            display_name="Research Lab",
+            weekly_quota_usd=75.0,
+            overage_buffer_usd=15.0,
+        )
+    )
+
+    user = User(
+        email="researcher@example.com",
+        group_id="research",
+        status=UserStatus.ACTIVE,
+        has_custom_quota=False,
+        current_week=CurrentWeekUsage(
+            week_id="2026-W41",
+            quota_credits_usd=10.0,  # Default previously
+        ),
+    )
+    mock_db.save_user(user)
+
+    # BigQuery shows $40 spend (under $75 group quota, but over $10 default quota)
+    # 10M gemini-3-pro tokens = $28.00 gross
+    mock_bq.set_custom_records(
+        [
+            UserUsageRecord(
+                user_email="researcher@example.com",
+                model_name="gemini-3-pro",
+                token_count=10000000,
+                request_count=100,
+            )
+        ]
+    )
+
+    evaluator = QuotaEvaluator(db_client=mock_db, bq_client=mock_bq, identity_client=mock_identity)
+    res = evaluator.run_evaluation()
+    assert res.success is True
+
+    updated_user = mock_db.get_user("researcher@example.com")
+    assert updated_user.current_week.quota_credits_usd == 75.0
+    assert updated_user.current_week.overage_buffer_usd == 15.0
+    # Gross spend ~$28.00 < 75.0, so remains ACTIVE
+    assert updated_user.status == UserStatus.ACTIVE
+
+
+def test_evaluator_custom_quota_overrides_group_quota(mock_db, mock_bq, mock_identity):
+    """Verify 3-tier precedence: Custom Quota overrides Group Quota."""
+    from app.core.evaluator import QuotaEvaluator
+    from app.db.models import CurrentWeekUsage, QuotaGroup, User, UserStatus
+
+    # User belongs to "developers" ($50/wk), but has custom quota of $120/wk
+    user = User(
+        email="lead.dev@example.com",
+        group_id="developers",
+        status=UserStatus.ACTIVE,
+        has_custom_quota=True,
+        custom_quota_usd=120.0,
+        custom_overage_usd=25.0,
+        current_week=CurrentWeekUsage(week_id="2026-W41"),
+    )
+    mock_db.save_user(user)
+
+    evaluator = QuotaEvaluator(db_client=mock_db, bq_client=mock_bq, identity_client=mock_identity)
+    res = evaluator.run_evaluation()
+    assert res.success is True
+
+    updated_user = mock_db.get_user("lead.dev@example.com")
+    assert updated_user.current_week.quota_credits_usd == 120.0
+    assert updated_user.current_week.overage_buffer_usd == 25.0
+
+
+def test_evaluator_group_exemption_inheritance(mock_db, mock_bq, mock_identity):
+    """Verify that a user inherits group-level exemption and is not throttled upon breach."""
+    from app.bq.bq_client import UserUsageRecord
+    from app.core.evaluator import QuotaEvaluator
+    from app.db.models import CurrentWeekUsage, QuotaGroup, User, UserStatus
+
+    # Create an exempt group
+    mock_db.create_group(
+        QuotaGroup(
+            group_id="executives",
+            display_name="Executives",
+            weekly_quota_usd=20.0,
+            overage_buffer_usd=5.0,
+            is_exempt=True,
+        )
+    )
+
+    user = User(
+        email="exec@example.com",
+        group_id="executives",
+        status=UserStatus.ACTIVE,
+        is_exempt=False,  # individual exemption is False
+        has_custom_quota=False,
+        current_week=CurrentWeekUsage(week_id="2026-W41"),
+    )
+    mock_db.save_user(user)
+
+    # High spend: 20M gemini-3-pro tokens = $56.00 gross (exceeds $20 + $5 = $25 limit)
+    mock_bq.set_custom_records(
+        [
+            UserUsageRecord(
+                user_email="exec@example.com",
+                model_name="gemini-3-pro",
+                token_count=20000000,
+                request_count=200,
+            )
+        ]
+    )
+
+    evaluator = QuotaEvaluator(db_client=mock_db, bq_client=mock_bq, identity_client=mock_identity)
+    res = evaluator.run_evaluation()
+    assert res.success is True
+
+    updated_user = mock_db.get_user("exec@example.com")
+    # Must remain ACTIVE because group is exempt
+    assert updated_user.status == UserStatus.ACTIVE
+
+
+def test_evaluator_discovered_user_gets_default_group(mock_db, mock_bq, mock_identity):
+    """Verify synthetic user discovery assigns the default group."""
+    from app.bq.bq_client import UserUsageRecord
+    from app.core.evaluator import QuotaEvaluator
+
+    mock_bq.set_custom_records(
+        [
+            UserUsageRecord(
+                user_email="brand.new.user@example.com",
+                model_name="gemini-3-pro",
+                token_count=500000,
+                request_count=10,
+            )
+        ]
+    )
+
+    evaluator = QuotaEvaluator(db_client=mock_db, bq_client=mock_bq, identity_client=mock_identity)
+    res = evaluator.run_evaluation()
+    assert res.success is True
+
+    discovered = mock_db.get_user("brand.new.user@example.com")
+    assert discovered is not None
+    assert discovered.group_id == "business-users"
+
+    assert res.users_evaluated > 0
 
