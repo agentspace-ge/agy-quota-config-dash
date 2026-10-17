@@ -1,0 +1,44 @@
+name: Antigravity Quota Concierge CI
+
+on:
+  push:
+    paths:
+      - 'concierge-agent/**'
+      - '.github/workflows/concierge-agent-ci.yml'
+  pull_request:
+    paths:
+      - 'concierge-agent/**'
+      - '.github/workflows/concierge-agent-ci.yml'
+  workflow_dispatch:
+
+jobs:
+  test-concierge-agent:
+    name: Unit Tests & Agent Engine Dry-Run
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: concierge-agent
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run Concierge Agent Unit & E2E Tests
+        env:
+          PYTHONPATH: .
+        run: |
+          python3 -m unittest discover -s tests -v
+
+      - name: Validate Vertex AI Agent Engine Deployment Plan (Dry-Run)
+        env:
+          PYTHONPATH: .
+        run: |
+          python3 -m antigravity_quota_concierge.deploy_agent_engine \
+            --project-id "ci-validation-project" \
+            --location "us-central1" \
+            --portal-api-url "https://antigravity-quota-portal.a.run.app" \
+            --dry-run

@@ -1,0 +1,11 @@
+{
+  "remote_agent_runtime_id": "projects/YOUR_PROJECT_NUMBER/locations/us-central1/reasoningEngines/YOUR_REASONING_ENGINE_ID",
+  "deployment_target": "agent_runtime",
+  "is_a2a": false,
+  "project_id": "your-gcp-project-id",
+  "location": "us-central1",
+  "display_name": "Antigravity Quota Concierge",
+  "description": "Internal Gemini Enterprise Multi-Agent Concierge that checks why an employee's Antigravity access is paused, coaches on model token efficiency, and submits quota increase requests via the Antigravity Quota & Usage Management Portal.",
+  "tool_description": "Use this tool when the user asks about Antigravity access, weekly quota limits, why their Antigravity or code assistance is paused or blocked, how to unpause or get more quota, how to submit or check a quota increase request, model token efficiency or spend coaching, or weekly quota reset countdowns.",
+  "portal_api_url": "https://antigravity-quota-portal-example.a.run.app"
+}

@@ -1,0 +1,78 @@
+# ==============================================================================
+# Antigravity Quota Portal - Example Terraform Variables
+# Copy to terraform.tfvars and customize for your project
+# ==============================================================================
+
+project_id            = "YOUR_PROJECT_ID"
+region                = "us-east5"
+bigquery_dataset_name = "antigravity_inference_logs"
+enabled_group_email   = "antigravity-enabled@example.com"
+disabled_group_email  = "antigravity-disabled@example.com"
+app_timezone          = "America/Los_Angeles"
+default_quota_usd     = 10.00
+default_overage_usd   = 2.00
+image_tag             = "latest"
+customer_id           = "C01234567" # Cloud Identity Customer ID (run: gcloud organizations list)
+manage_cloud_identity_groups = true
+
+# ------------------------------------------------------------------------------
+# Access Mode & Enterprise Zero-Trust Governance
+# Options:
+#   - "proxy": Private Cloud Run (ingress: internal or all, IAM authentication strictly
+#              enforced). Recommended for domain-restricted GCP organizations
+#              and Cloud Shell. Access via: ./scripts/portal_access.sh proxy
+#   - "internal_lb": Regional Internal Application Load Balancer via Serverless NEG
+#              on a private VPC subnet.
+#   - "external_lb": External HTTPS Application Load Balancer with Identity-Aware
+#              Proxy (IAP) & Google-managed SSL.
+#   - "direct": Direct Cloud Run URL (requires IAM authentication).
+# ------------------------------------------------------------------------------
+access_mode        = "proxy"
+proxy_ingress_type = "all" # "all" for IAM-authenticated local proxy bridge, or "internal" for VPC-only
+
+# Organization & Enterprise Tenant Identity Bindings
+tenant_domain    = "example.com" # e.g. example.com or your-org.com
+allowed_invokers = [
+  # "user:admin@example.com",
+  # "group:cloud-engineers@example.com",
+]
+
+# ------------------------------------------------------------------------------
+# Regional Internal Load Balancer Settings (used when access_mode = "internal_lb")
+# ------------------------------------------------------------------------------
+vpc_network                     = "default"
+vpc_subnet                      = "default"
+create_proxy_only_subnet        = false
+proxy_only_subnet_name          = "antigravity-portal-proxy-subnet"
+proxy_only_subnet_cidr          = "10.128.0.0/23"
+create_internal_firewall_rule   = false
+internal_firewall_source_ranges = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
+
+# ------------------------------------------------------------------------------
+# External Load Balancer, Cloud DNS & IAP Settings
+# Supports 2-Phase Warmup & Bidirectional Switching (proxy <-> external_lb):
+#   - Stage 1 Warmup: Set access_mode = "proxy" and enable_lb = true to provision
+#     GCLB + Cloud DNS + Managed SSL Cert while keeping proxy access active.
+#   - Stage 2 Cutover: Once './scripts/portal_access.sh iap-status' shows the
+#     SSL certificate is ACTIVE, set access_mode = "external_lb".
+#   - Rollback to Proxy: Set access_mode = "proxy" (keep enable_lb = true for
+#     instant warm rollback, or set enable_lb = false to tear down GCLB).
+# ------------------------------------------------------------------------------
+enable_lb               = false
+allow_proxy_with_lb     = false
+retain_lb_ip            = false
+domain_override         = ""
+
+# Cloud DNS Zone & Subdomain Configuration (Optional)
+manage_dns_zone         = false              # true to create a new zone, false to use an existing zone
+dns_project_id          = ""                 # Defaults to project_id when empty
+dns_zone_name           = ""                 # e.g. "sub-domain"
+dns_zone_domain         = ""                 # e.g. "demo.example.com"
+dns_record_prefix       = ""                 # e.g. "quota" for quota.demo.example.com, or "" for apex
+
+# Identity-Aware Proxy (IAP) OAuth Settings (Optional: leave empty for Google-managed IAP OAuth)
+iap_oauth_client_id     = ""
+iap_oauth_client_secret = ""
+iap_allowed_members     = [
+  "domain:example.com"
+]

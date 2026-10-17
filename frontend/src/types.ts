@@ -1,0 +1,238 @@
+export type UserStatus = 'ACTIVE' | 'AUTO_DISABLED' | 'MANUALLY_DISABLED';
+
+export interface SpendBreakdown {
+  input_spend_usd: number;
+  output_spend_usd: number;
+  cached_spend_usd: number;
+}
+
+export interface CurrentWeekUsage {
+  week_id: string;
+  window_start_utc?: string | null;
+  total_tokens: number;
+  total_requests: number;
+  gross_spend_usd: number;
+  quota_credits_usd: number;
+  remaining_credit_usd: number;
+  net_billable_cost_usd: number;
+  overage_buffer_usd: number;
+  spend_breakdown: SpendBreakdown;
+  tokens_by_model: Record<string, number>;
+  spend_by_model: Record<string, number>;
+  credit_utilization_percentage: number;
+  last_active?: string | null;
+}
+
+export interface User {
+  email: string;
+  group_id?: string | null;
+  status: UserStatus;
+  is_exempt: boolean;
+  has_custom_quota: boolean;
+  custom_quota_usd?: number | null;
+  custom_overage_usd?: number | null;
+  is_temporary_quota?: boolean;
+  current_week: CurrentWeekUsage;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ModelPricing {
+  display_name: string;
+  log_pattern: string;
+  input_price_per_million: number;
+  output_price_per_million: number;
+  cached_price_per_million: number;
+  estimated_input_ratio: number;
+  estimated_output_ratio: number;
+  estimated_cached_ratio: number;
+}
+
+export interface AppConfig {
+  doc_id: string;
+  timezone: string;
+  enabled_group: string;
+  disabled_group: string;
+  default_quota_usd: number;
+  default_overage_usd: number;
+  preset_quotas: number[];
+  webhook_alert_url: string;
+  last_publish_timestamp?: string | null;
+  mock_mode?: boolean;
+  admin_emails?: string[];
+  admin_group_email?: string;
+  models: Record<string, ModelPricing>;
+}
+
+export interface CreditPoolStats {
+  tier_key: string;
+  tier_name: string;
+  usage_wtu: number;
+  limit_wtu: number;
+  usage_usd: number;
+  limit_usd: number;
+  utilization_pct: number;
+  window_start_utc?: string | null;
+  next_reset_utc?: string | null;
+  last_synced_at?: string | null;
+}
+
+export interface KPIStats {
+  active_developers: number;
+  auto_throttled_developers: number;
+  manually_locked_developers: number;
+  exempt_developers: number;
+  total_tokens_this_week: number;
+  total_gross_usage_usd: number;
+  total_credits_allocated_usd: number;
+  total_net_overages_usd: number;
+  week_id: string;
+  credit_pool?: CreditPoolStats | null;
+}
+
+
+export interface AuditEvent {
+  event_id: string;
+  timestamp: string;
+  action: string;
+  triggered_by: string;
+  target_user?: string | null;
+  details: Record<string, any>;
+}
+
+export interface EvaluationResult {
+  evaluated_at: string;
+  week_id: string;
+  users_evaluated: number;
+  group_swaps_count: number;
+  changes: Array<{
+    user: string;
+    action: string;
+    reason: string;
+    status: string;
+  }>;
+  success: boolean;
+  error?: string | null;
+}
+
+export interface UserUpdatePayload {
+  group_id?: string | null;
+  is_exempt?: boolean;
+  status?: UserStatus;
+  has_custom_quota?: boolean;
+  custom_quota_usd?: number | null;
+  custom_overage_usd?: number | null;
+}
+
+export interface QuotaGroupStats {
+  member_count: number;
+  gross_spend_usd: number;
+  total_tokens: number;
+}
+
+export interface QuotaGroup {
+  group_id: string;
+  display_name: string;
+  description: string;
+  weekly_quota_usd: number;
+  overage_buffer_usd: number;
+  is_exempt: boolean;
+  iam_group_email?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  member_count?: number;
+  gross_spend_usd?: number;
+  total_tokens?: number;
+  stats?: QuotaGroupStats | null;
+}
+
+export interface QuotaGroupCreateRequest {
+  group_id: string;
+  display_name: string;
+  description?: string;
+  weekly_quota_usd: number;
+  overage_buffer_usd?: number;
+  is_exempt?: boolean;
+  iam_group_email?: string | null;
+}
+
+export interface QuotaGroupUpdateRequest {
+  display_name?: string;
+  description?: string;
+  weekly_quota_usd?: number;
+  overage_buffer_usd?: number;
+  is_exempt?: boolean;
+  iam_group_email?: string | null;
+}
+
+export interface QuotaGroupMembersRequest {
+  emails: string[];
+  action?: 'add' | 'remove' | 'replace';
+}
+
+export type QuotaRequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
+export type QuotaRequestDuration = 'TEMPORARY_WEEKLY' | 'PERMANENT';
+export type QuotaRequestReasonCategory = 
+  | 'SPRINT_DEADLINE'
+  | 'REFACTORING'
+  | 'INCIDENT'
+  | 'ROLE_UPGRADE'
+  | 'OTHER';
+
+export interface QuotaRequest {
+  request_id: string;
+  user_email: string;
+  current_group_id: string;
+  current_quota_usd: number;
+  current_spend_usd: number;
+  requested_quota_usd: number;
+  reason_category: QuotaRequestReasonCategory;
+  justification: string;
+  duration_needed: QuotaRequestDuration;
+  status: QuotaRequestStatus;
+  created_at: string;
+  reviewed_by?: string | null;
+  reviewed_at?: string | null;
+  admin_note?: string | null;
+  approved_quota_usd?: number | null;
+  approved_duration?: QuotaRequestDuration | null;
+  cooldown_until?: string | null;
+}
+
+export interface QuotaRequestCreatePayload {
+  requested_quota_usd: number;
+  reason_category: QuotaRequestReasonCategory;
+  justification: string;
+  duration_needed?: QuotaRequestDuration;
+}
+
+export interface QuotaRequestReviewPayload {
+  action: 'approve' | 'reject';
+  approved_quota_usd?: number;
+  approved_duration?: QuotaRequestDuration;
+  admin_note?: string;
+}
+
+export interface QuotaRequestBulkReviewPayload {
+  request_ids: string[];
+  action: 'approve' | 'reject';
+  approved_quota_usd?: number;
+  approved_duration?: QuotaRequestDuration;
+  admin_note?: string;
+}
+
+export interface AuthMeResponse {
+  email: string;
+  caller_email?: string;
+  is_admin: boolean;
+  is_impersonating?: boolean;
+  user: User;
+  group?: QuotaGroup | null;
+  credit_pool?: CreditPoolStats | null;
+  active_request?: QuotaRequest | null;
+  in_cooldown: boolean;
+  cooldown_until?: string | null;
+  admin_note?: string | null;
+  warning_threshold_reached: boolean;
+}
+

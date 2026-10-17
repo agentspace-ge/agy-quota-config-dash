@@ -1,0 +1,33 @@
+.git
+.gitignore
+.venv
+venv/
+env/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.coverage
+htmlcov/
+tests/
+
+# Frontend builds
+frontend/node_modules/
+frontend/dist/
+node_modules/
+
+# Terraform
+terraform/.terraform/
+terraform/*.tfstate*
+terraform/tfplan*
+
+# Docs and local artifacts
+concierge-agent/
+docs/
+demo/
+.superpowers/
+.env*
+*.tfvars
+scratch/
+*.log

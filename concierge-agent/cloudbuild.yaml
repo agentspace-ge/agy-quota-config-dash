@@ -1,0 +1,55 @@
+# Google Cloud Build pipeline for testing and optionally deploying the
+# Antigravity Quota Concierge ADK Multi-Agent (`concierge-agent/`).
+#
+# Run tests + dry-run only (default):
+#   gcloud builds submit concierge-agent --config=concierge-agent/cloudbuild.yaml
+#
+# Deploy to Vertex AI Agent Engine:
+#   gcloud builds submit concierge-agent --config=concierge-agent/cloudbuild.yaml \
+#     --substitutions=_DEPLOY_TO_AGENT_ENGINE=true,_PORTAL_API_URL=https://antigravity-quota-portal-xyz.a.run.app
+
+steps:
+  - name: 'python:3.11-slim'
+    id: 'unit-tests'
+    entrypoint: 'bash'
+    args:
+      - '-e'
+      - '-c'
+      - |
+        export PYTHONPATH=.
+        python3 -m unittest discover -s tests -v
+        python3 -m antigravity_quota_concierge.deploy_agent_engine \
+          --project-id "$PROJECT_ID" \
+          --location "${_LOCATION}" \
+          --portal-api-url "${_PORTAL_API_URL}" \
+          --dry-run
+
+  - name: 'python:3.11-slim'
+    id: 'deploy-agent-engine'
+    entrypoint: 'bash'
+    args:
+      - '-e'
+      - '-c'
+      - |
+        if [ "${_DEPLOY_TO_AGENT_ENGINE}" != "true" ]; then
+          echo "Skipping Vertex AI Agent Engine deployment (_DEPLOY_TO_AGENT_ENGINE=${_DEPLOY_TO_AGENT_ENGINE})."
+          exit 0
+        fi
+        pip install --no-cache-dir .
+        export PYTHONPATH=.
+        python3 -m antigravity_quota_concierge.deploy_agent_engine \
+          --project-id "$PROJECT_ID" \
+          --location "${_LOCATION}" \
+          --staging-bucket "${_STAGING_BUCKET}" \
+          --portal-api-url "${_PORTAL_API_URL}" \
+          --concierge-sa-email "${_CONCIERGE_SA_EMAIL}"
+
+substitutions:
+  _LOCATION: 'us-central1'
+  _STAGING_BUCKET: ''
+  _PORTAL_API_URL: 'http://localhost:8080'
+  _CONCIERGE_SA_EMAIL: ''
+  _DEPLOY_TO_AGENT_ENGINE: 'false'
+
+options:
+  logging: CLOUD_LOGGING_ONLY
