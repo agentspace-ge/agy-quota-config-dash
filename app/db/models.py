@@ -44,6 +44,36 @@ class ModelPricing(BaseModel):
 
 
 DEFAULT_MODEL_PRICING: dict[str, ModelPricing] = {
+    "gemini-4-argon": ModelPricing(
+        display_name="Gemini 4 Argon (High / Medium / Low)",
+        log_pattern="%4%argon%",
+        input_price_per_million=2.00,
+        output_price_per_million=10.00,
+        cached_price_per_million=0.10,
+        estimated_input_ratio=0.70,
+        estimated_output_ratio=0.20,
+        estimated_cached_ratio=0.10,
+    ),
+    "claude-opus-5-5": ModelPricing(
+        display_name="Anthropic Claude Opus 5.5 / 4.6",
+        log_pattern="%claude%opus%",
+        input_price_per_million=4.00,
+        output_price_per_million=20.00,
+        cached_price_per_million=0.20,
+        estimated_input_ratio=0.70,
+        estimated_output_ratio=0.20,
+        estimated_cached_ratio=0.10,
+    ),
+    "claude-sonnet-5-5": ModelPricing(
+        display_name="Anthropic Claude Sonnet 5.5 / 4.6",
+        log_pattern="%claude%sonnet%",
+        input_price_per_million=2.00,
+        output_price_per_million=10.00,
+        cached_price_per_million=0.20,
+        estimated_input_ratio=0.70,
+        estimated_output_ratio=0.20,
+        estimated_cached_ratio=0.10,
+    ),
     "gemini-3-pro": ModelPricing(
         display_name="Gemini 3.1 Pro / 3.0 Pro",
         log_pattern="%3%pro%",

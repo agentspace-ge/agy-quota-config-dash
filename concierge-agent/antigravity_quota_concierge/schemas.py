@@ -5,23 +5,70 @@ from __future__ import annotations
 from typing import Any
 
 try:
-    from pydantic import AliasChoices, BaseModel, ConfigDict, Field
+    from pydantic import AliasChoices, BaseModel, ConfigDict, Field, ValidationError
 except ImportError:  # pragma: no cover
+
+    class ValidationError(ValueError):  # type: ignore[no-redef]
+        """Fallback validation error when pydantic is not installed."""
 
     class AliasChoices:  # type: ignore[no-redef]
         def __init__(self, *choices: str) -> None:
             self.choices = choices
 
+    class _FieldInfo:
+        def __init__(self, default: Any = None, validation_alias: AliasChoices | str | None = None) -> None:
+            self.default = default
+            self.validation_alias = validation_alias
+
     def ConfigDict(**kwargs: Any) -> dict[str, Any]:  # type: ignore[no-redef]
         return kwargs
 
     def Field(default: Any = None, **kwargs: Any) -> Any:  # type: ignore[no-redef]
-        return default
+        return _FieldInfo(default=default, validation_alias=kwargs.get("validation_alias"))
 
     class BaseModel:  # type: ignore[no-redef]
         def __init__(self, **kwargs: Any) -> None:
-            for k, v in kwargs.items():
+            annotations = getattr(self.__class__, "__annotations__", {})
+            remaining = dict(kwargs)
+            for field_name, cls_val in list(self.__class__.__dict__.items()):
+                if isinstance(cls_val, _FieldInfo):
+                    val_found = False
+                    val = cls_val.default
+                    if field_name in remaining:
+                        val = remaining.pop(field_name)
+                        val_found = True
+                    elif isinstance(cls_val.validation_alias, AliasChoices):
+                        for alias in cls_val.validation_alias.choices:
+                            if alias in remaining:
+                                val = remaining.pop(alias)
+                                val_found = True
+                                break
+                    elif isinstance(cls_val.validation_alias, str) and cls_val.validation_alias in remaining:
+                        val = remaining.pop(cls_val.validation_alias)
+                        val_found = True
+                    if val_found and val is not None:
+                        val = self._coerce_type(field_name, val, annotations.get(field_name, ""))
+                    setattr(self, field_name, val)
+
+            for k, v in remaining.items():
+                if k in annotations and v is not None:
+                    v = self._coerce_type(k, v, annotations[k])
                 setattr(self, k, v)
+
+        @staticmethod
+        def _coerce_type(field_name: str, value: Any, annotation: Any) -> Any:
+            ann_str = str(annotation)
+            if ann_str.startswith("float"):
+                try:
+                    return float(value)
+                except (TypeError, ValueError) as exc:
+                    raise ValidationError(f"Invalid float for {field_name}: {value!r}") from exc
+            if ann_str.startswith("int") and not isinstance(value, bool):
+                try:
+                    return int(value)
+                except (TypeError, ValueError) as exc:
+                    raise ValidationError(f"Invalid int for {field_name}: {value!r}") from exc
+            return value
 
         @classmethod
         def model_validate(cls, data: dict[str, Any]) -> Any:

@@ -240,7 +240,17 @@ export const SelfServiceCard: React.FC<SelfServiceCardProps> = ({
     const s = spendByModel[key] || 0;
     totalModelSpend += s;
     const lower = key.toLowerCase();
-    if (lower.includes('pro') || lower.includes('sonnet') || lower.includes('opus') || lower.includes('o1') || lower.includes('o3')) {
+    const isLightweight =
+      lower.includes('flash') || lower.includes('lite') || lower.includes('haiku') || lower.includes('nano');
+    if (
+      !isLightweight &&
+      (lower.includes('argon') ||
+        lower.includes('pro') ||
+        lower.includes('sonnet') ||
+        lower.includes('opus') ||
+        lower.includes('o1') ||
+        lower.includes('o3'))
+    ) {
       frontierSpend += s;
     } else {
       lightweightSpend += s;
@@ -685,7 +695,7 @@ export const SelfServiceCard: React.FC<SelfServiceCardProps> = ({
                     : '💡 Excellent model pacing! You are utilizing high-efficiency lightweight models to maximize your weekly token budget.'}
                 </Typography>
                 <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.5 }}>
-                  Configure your Antigravity agent or editor rules to default to Gemini 2.0 Flash for code search, file analysis, and unit test generation.
+                  Configure your Antigravity agent or editor rules to default to Gemini 3.5 Flash or Gemini 3.8 Flash for code search, file analysis, and unit test generation.
                 </Typography>
               </Box>
             </Paper>
@@ -716,7 +726,7 @@ export const SelfServiceCard: React.FC<SelfServiceCardProps> = ({
                     ${frontierSpend.toFixed(2)}
                   </Typography>
                   <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                    Gemini 1.5 Pro, Gemini 3 Pro, Claude Sonnet
+                    Gemini 4 Argon, Gemini 3.1 Pro, Claude Opus / Sonnet
                   </Typography>
                 </Paper>
               </Grid>
@@ -745,7 +755,7 @@ export const SelfServiceCard: React.FC<SelfServiceCardProps> = ({
                     ${lightweightSpend.toFixed(2)}
                   </Typography>
                   <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                    Gemini 1.5 Flash, Gemini 2.0 Flash, Claude Haiku
+                    Gemini 3.8 Flash, Gemini 3.6 Flash, Gemini 3.5 Flash
                   </Typography>
                 </Paper>
               </Grid>

@@ -335,6 +335,36 @@ To eliminate manual directory setup, group creation and permission delegation ar
 ```json
 {
   "models": {
+    "gemini-4-argon": {
+      "display_name": "Gemini 4 Argon (High / Medium / Low)",
+      "log_pattern": "%4%argon%",
+      "input_price_per_million": 2.00,
+      "output_price_per_million": 10.00,
+      "cached_price_per_million": 0.10,
+      "estimated_input_ratio": 0.70,
+      "estimated_output_ratio": 0.20,
+      "estimated_cached_ratio": 0.10
+    },
+    "claude-opus-5-5": {
+      "display_name": "Anthropic Claude Opus 5.5 / 4.6",
+      "log_pattern": "%claude%opus%",
+      "input_price_per_million": 4.00,
+      "output_price_per_million": 20.00,
+      "cached_price_per_million": 0.20,
+      "estimated_input_ratio": 0.70,
+      "estimated_output_ratio": 0.20,
+      "estimated_cached_ratio": 0.10
+    },
+    "claude-sonnet-5-5": {
+      "display_name": "Anthropic Claude Sonnet 5.5 / 4.6",
+      "log_pattern": "%claude%sonnet%",
+      "input_price_per_million": 2.00,
+      "output_price_per_million": 10.00,
+      "cached_price_per_million": 0.20,
+      "estimated_input_ratio": 0.70,
+      "estimated_output_ratio": 0.20,
+      "estimated_cached_ratio": 0.10
+    },
     "gemini-3-pro": {
       "display_name": "Gemini 3.1 Pro / 3.0 Pro",
       "log_pattern": "%3%pro%",
@@ -816,7 +846,7 @@ To satisfy enterprise FinOps compliance and SIEM ingestion, all state changes ar
 
 The portal is actively running with:
 1. **Live Inference Log Ingestion**: Ingesting daily sharded telemetry from `businessaicode.googleapis.com` via a consolidated BigQuery view.
-2. **Dynamic Pricing Calibration**: Supporting current models including `gemini-3.8-flash`, `gemini-3.1-pro-preview`, and `gemini-3.5-flash-lite`.
+2. **Dynamic Pricing Calibration**: Supporting current Gemini and Anthropic models including `gemini-4-argon`, `claude-opus-5-5`, `claude-sonnet-5-5`, `gemini-3.8-flash`, `gemini-3.1-pro-preview`, and `gemini-3.5-flash-lite`.
 3. **Automated Directory Governance**: Cloud Identity IAM gatekeeper groups (`antigravity-active@` / `antigravity-throttled@`) fully provisioned and managed via Terraform.
 4. **Quota Management Groups**: 3-tier policy hierarchy (`User Custom Quota > Group Quota > Global Default`) with pre-seeded "Developers" ($50/wk) and "Business Users" ($10/wk) groups, group exemption cascading, and full CRUD REST APIs.
 5. **Three-Tab Responsive Governance UI**: Dedicated "Users", "Groups", and "Quota Increase Requests" tabs with client-side table pagination and pending request badges.

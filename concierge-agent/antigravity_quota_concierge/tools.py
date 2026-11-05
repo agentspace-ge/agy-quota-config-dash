@@ -437,7 +437,7 @@ def get_model_efficiency_insights(
 ) -> dict[str, Any]:
     """Analyze the employee's model-by-model spend and provide FinOps efficiency coaching.
 
-    Computes Frontier (`Pro`/`Opus`/`Sonnet`) vs Lightweight (`Flash`) spend percentages
+    Computes Frontier (`Argon`/`Pro`/`Opus`/`Sonnet`) vs Lightweight (`Flash`) spend percentages
     from `spend_by_model` and `tokens_by_model`, explaining why quota was consumed rapidly
     and how switching routine tasks to `gemini-3.5-flash` stretches weekly quota 3–4x further.
 
@@ -464,7 +464,10 @@ def get_model_efficiency_insights(
         tokens = int(tokens_by_model.get(model_name, 0))
         total_model_spend += spend
         lower = model_name.lower()
-        is_frontier = any(k in lower for k in ("pro", "sonnet", "opus", "o1", "o3"))
+        is_lightweight = any(k in lower for k in ("flash", "lite", "haiku", "nano"))
+        is_frontier = (not is_lightweight) and any(
+            k in lower for k in ("argon", "pro", "sonnet", "opus", "o1", "o3")
+        )
         if is_frontier:
             frontier_spend += spend
         else:
@@ -486,12 +489,26 @@ def get_model_efficiency_insights(
     top_model_spend = model_breakdown[0]["spend_usd"] if model_breakdown else 0.0
 
     if frontier_pct >= 70.0 and total_model_spend > 0:
+        # Dynamic potential savings rate vs Flash ($0.12–$0.26/1M blended):
+        # Opus ($6.82/1M -> ~95%, 10–15x), Argon/Sonnet ($3.41–$3.42/1M -> ~90%, 8–10x), Pro ($1.91/1M -> ~75%, 3–4x)
+        top_lower = top_model.lower()
+        if "opus" in top_lower:
+            savings_pct_est = "~95%"
+            stretch_factor = "10–15x longer"
+        elif "argon" in top_lower or "sonnet" in top_lower:
+            savings_pct_est = "~90%"
+            stretch_factor = "8–10x longer"
+        else:
+            savings_pct_est = "~75%"
+            stretch_factor = "3–4x longer"
+
         coaching_recommendation = (
             f"{frontier_pct:.0f}% of your weekly spend (${frontier_spend:.2f} of ${total_model_spend:.2f}, "
-            f"led by `{top_model}` at ${top_model_spend:.2f}) came from Frontier reasoning models. "
-            f"Switching routine code edits, unit test generation, and quick Q&A to `gemini-3.5-flash` "
-            f"reduces token cost by ~75%, allowing your ${status_info['weekly_limit_usd']:.2f} weekly quota "
-            f"to last 3–4x longer while reserving Pro models for complex multi-file architecture tasks."
+            f"led by `{top_model}` at ${top_model_spend:.2f}) came from Frontier reasoning models "
+            f"(Argon, Opus, Sonnet, Pro). Switching routine code edits, unit test generation, and quick Q&A "
+            f"to `gemini-3.5-flash` or `gemini-3.8-flash` reduces token cost by {savings_pct_est}, allowing "
+            f"your ${status_info['weekly_limit_usd']:.2f} weekly quota to last {stretch_factor} while reserving "
+            f"Frontier models for complex multi-file architecture tasks."
         )
     elif total_model_spend > 0:
         coaching_recommendation = (
@@ -502,7 +519,7 @@ def get_model_efficiency_insights(
     else:
         coaching_recommendation = (
             "You have $0.00 recorded model spend so far this week. Using `gemini-3.5-flash` for "
-            "routine coding and reserving Frontier Pro models for complex design work will maximize your weekly budget."
+            "routine coding and reserving Frontier models for complex design work will maximize your weekly budget."
         )
 
     return {

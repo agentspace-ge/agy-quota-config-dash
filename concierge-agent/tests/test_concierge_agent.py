@@ -535,6 +535,59 @@ class TestAntigravityQuotaConcierge(unittest.TestCase):
             else:
                 os.environ.pop("PORTAL_IAP_CLIENT_ID", None)
 
+    def test_model_efficiency_insights_gemini_4_argon_and_claude(self) -> None:
+        """Verify Argon/Claude Frontier classification, Flash safeguard, and dynamic coaching."""
+        self.backend.users["developer@example.com"] = {
+            "email": "developer@example.com",
+            "group_id": "developers",
+            "status": "ACTIVE",
+            "is_exempt": False,
+            "has_custom_quota": False,
+            "current_week": {
+                "week_id": "2026-W45",
+                "gross_spend_usd": 33.80,
+                "quota_credits_usd": 50.00,
+                "overage_buffer_usd": 10.00,
+                "remaining_credit_usd": 16.20,
+                "credit_utilization_percentage": 67.6,
+                "tokens_by_model": {
+                    "gemini-4-argon-high": 2_800_000,
+                    "claude-sonnet-5-5-medium": 3_000_000,
+                    "claude-opus-5-5-high": 1_800_000,
+                    "gemini-3.5-flash": 3_000_000,
+                    "gemini-4-flash-preview": 1_000_000,
+                },
+                "spend_by_model": {
+                    "gemini-4-argon-high": 9.55,
+                    "claude-sonnet-5-5-medium": 10.26,
+                    "claude-opus-5-5-high": 12.28,
+                    "gemini-3.5-flash": 1.26,
+                    "gemini-4-flash-preview": 0.45,
+                },
+            },
+        }
+        insights = get_model_efficiency_insights("developer@example.com")
+        self.assertEqual(insights["status"], "success")
+        breakdown_by_name = {m["model"]: m for m in insights["model_breakdown"]}
+
+        # Verify Frontier vs Lightweight classification (including future gemini-4-flash safeguard)
+        self.assertEqual(breakdown_by_name["gemini-4-argon-high"]["tier"], "frontier")
+        self.assertEqual(breakdown_by_name["claude-sonnet-5-5-medium"]["tier"], "frontier")
+        self.assertEqual(breakdown_by_name["claude-opus-5-5-high"]["tier"], "frontier")
+        self.assertEqual(breakdown_by_name["gemini-3.5-flash"]["tier"], "lightweight")
+        self.assertEqual(breakdown_by_name["gemini-4-flash-preview"]["tier"], "lightweight")
+
+        # Opus top spend -> ~95% and 10–15x longer
+        self.assertIn("~95%", insights["coaching_recommendation"])
+        self.assertIn("10–15x longer", insights["coaching_recommendation"])
+        self.assertIn("gemini-3.5-flash", insights["coaching_recommendation"])
+
+        # Argon top spend -> ~90% and 8–10x longer
+        self.backend.users["developer@example.com"]["current_week"]["spend_by_model"]["gemini-4-argon-high"] = 18.00
+        argon_insights = get_model_efficiency_insights("developer@example.com")
+        self.assertIn("~90%", argon_insights["coaching_recommendation"])
+        self.assertIn("8–10x longer", argon_insights["coaching_recommendation"])
+
 
 if __name__ == "__main__":
     unittest.main()
