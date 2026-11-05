@@ -1,10 +1,13 @@
 """Tests for Pydantic schemas and ADK compat enhancements."""
 
 import unittest
-from pydantic import ValidationError
 
 from antigravity_quota_concierge._adk_compat import LlmAgent
-from antigravity_quota_concierge.schemas import QuotaRequestTaskOutput, ConciergeState
+from antigravity_quota_concierge.schemas import (
+    ConciergeState,
+    QuotaRequestTaskOutput,
+    ValidationError,
+)
 
 
 class TestSchemasAndCompat(unittest.TestCase):
