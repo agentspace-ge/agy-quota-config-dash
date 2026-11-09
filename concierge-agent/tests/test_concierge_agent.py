@@ -64,8 +64,8 @@ class FakePortalBackend:
                     "overage_buffer_usd": 0.00,
                     "remaining_credit_usd": 0.00,
                     "credit_utilization_percentage": 100.67,
-                    "tokens_by_model": {"gemini-3-pro": 2200000, "gemini-3.5-flash": 750000},
-                    "spend_by_model": {"gemini-3-pro": 5.60, "gemini-3.5-flash": 0.44},
+                    "tokens_by_model": {"gemini-3-pro": 2200000, "gemini-3.7-flash": 750000},
+                    "spend_by_model": {"gemini-3-pro": 5.60, "gemini-3.7-flash": 0.44},
                 },
             },
             "charlie.davis@example.com": {
@@ -98,8 +98,8 @@ class FakePortalBackend:
                     "overage_buffer_usd": 2.00,
                     "remaining_credit_usd": 5.80,
                     "credit_utilization_percentage": 42.0,
-                    "tokens_by_model": {"gemini-3-pro": 500000, "gemini-3.5-flash": 2000000},
-                    "spend_by_model": {"gemini-3-pro": 1.20, "gemini-3.5-flash": 3.00},
+                    "tokens_by_model": {"gemini-3-pro": 500000, "gemini-3.7-flash": 2000000},
+                    "spend_by_model": {"gemini-3-pro": 1.20, "gemini-3.7-flash": 3.00},
                 },
             },
         }
@@ -189,13 +189,13 @@ class TestAntigravityQuotaConcierge(unittest.TestCase):
     def tearDown(self) -> None:
         set_custom_http_requester(None)
 
-    def test_multi_agent_topology_and_gemini_3_5_flash_model(self) -> None:
-        """Verify Root Concierge and Quota Request Sub-Agent use gemini-3.5-flash and wire all 6 tools."""
-        self.assertEqual(DEFAULT_CONCIERGE_MODEL, "gemini-3.5-flash")
+    def test_multi_agent_topology_and_gemini_3_7_flash_model(self) -> None:
+        """Verify Root Concierge and Quota Request Sub-Agent use gemini-3.7-flash and wire all 6 tools."""
+        self.assertEqual(DEFAULT_CONCIERGE_MODEL, "gemini-3.7-flash")
         self.assertEqual(root_agent.name, "antigravity_quota_concierge")
-        self.assertEqual(root_agent.model, "gemini-3.5-flash")
+        self.assertEqual(root_agent.model, "gemini-3.7-flash")
         self.assertEqual(quota_request_agent.name, "quota_request_agent")
-        self.assertEqual(quota_request_agent.model, "gemini-3.5-flash")
+        self.assertEqual(quota_request_agent.model, "gemini-3.7-flash")
 
         # Verify sub-agent delegation wiring
         self.assertIn(quota_request_agent, root_agent.sub_agents)
@@ -278,7 +278,7 @@ class TestAntigravityQuotaConcierge(unittest.TestCase):
         self.assertEqual(insights["frontier_spend_usd"], 5.60)
         self.assertEqual(insights["lightweight_spend_usd"], 0.44)
         self.assertGreater(insights["frontier_percentage"], 90.0)
-        self.assertIn("gemini-3.5-flash", insights["coaching_recommendation"])
+        self.assertIn("gemini-3.7-flash", insights["coaching_recommendation"])
         self.assertIn("3–4x longer", insights["coaching_recommendation"])
 
     def test_subagent_preset_options_and_single_message_submission(self) -> None:
@@ -452,7 +452,7 @@ class TestAntigravityQuotaConcierge(unittest.TestCase):
         self.assertEqual(res["status"], "dry_run")
         plan = res["deployment_plan"]
         self.assertEqual(plan["root_agent_name"], "antigravity_quota_concierge")
-        self.assertEqual(plan["model"], "gemini-3.5-flash")
+        self.assertEqual(plan["model"], "gemini-3.7-flash")
         self.assertEqual(plan["sub_agents"], ["quota_request_agent"])
         self.assertEqual(plan["extra_packages"], ["antigravity_quota_concierge"])
         self.assertEqual(
@@ -554,14 +554,14 @@ class TestAntigravityQuotaConcierge(unittest.TestCase):
                     "gemini-4-argon-high": 2_800_000,
                     "claude-sonnet-5-5-medium": 3_000_000,
                     "claude-opus-5-5-high": 1_800_000,
-                    "gemini-3.5-flash": 3_000_000,
+                    "gemini-3.7-flash": 3_000_000,
                     "gemini-4-flash-preview": 1_000_000,
                 },
                 "spend_by_model": {
                     "gemini-4-argon-high": 9.55,
                     "claude-sonnet-5-5-medium": 10.26,
                     "claude-opus-5-5-high": 12.28,
-                    "gemini-3.5-flash": 1.26,
+                    "gemini-3.7-flash": 1.26,
                     "gemini-4-flash-preview": 0.45,
                 },
             },
@@ -574,13 +574,13 @@ class TestAntigravityQuotaConcierge(unittest.TestCase):
         self.assertEqual(breakdown_by_name["gemini-4-argon-high"]["tier"], "frontier")
         self.assertEqual(breakdown_by_name["claude-sonnet-5-5-medium"]["tier"], "frontier")
         self.assertEqual(breakdown_by_name["claude-opus-5-5-high"]["tier"], "frontier")
-        self.assertEqual(breakdown_by_name["gemini-3.5-flash"]["tier"], "lightweight")
+        self.assertEqual(breakdown_by_name["gemini-3.7-flash"]["tier"], "lightweight")
         self.assertEqual(breakdown_by_name["gemini-4-flash-preview"]["tier"], "lightweight")
 
         # Opus top spend -> ~95% and 10–15x longer
         self.assertIn("~95%", insights["coaching_recommendation"])
         self.assertIn("10–15x longer", insights["coaching_recommendation"])
-        self.assertIn("gemini-3.5-flash", insights["coaching_recommendation"])
+        self.assertIn("gemini-3.7-flash", insights["coaching_recommendation"])
 
         # Argon top spend -> ~90% and 8–10x longer
         self.backend.users["developer@example.com"]["current_week"]["spend_by_model"]["gemini-4-argon-high"] = 18.00

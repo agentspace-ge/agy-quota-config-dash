@@ -326,19 +326,22 @@ def test_evaluator_pool_reset_advancement(mock_db, mock_bq, mock_identity):
 
 def test_evaluator_no_reset_when_pool_window_has_not_advanced(mock_db, mock_bq, mock_identity):
     """Verify that multiple evaluations during the same pool cycle do not reset spend or create extra snapshots."""
+    from datetime import UTC, datetime, timedelta
     from unittest.mock import MagicMock
+
     from app.core.evaluator import QuotaEvaluator
     from app.db.models import CreditPoolStats
-    from datetime import UTC, datetime, timedelta
 
-    t0 = datetime(2026, 10, 11, 13, 6, 56, tzinfo=UTC)
+    t0 = datetime.now(UTC) - timedelta(days=2)
+    iso_year, iso_week, _ = t0.isocalendar()
+    current_week_str = f"{iso_year}-W{iso_week:02d}"
 
     # User in cycle t0
     user = User(
         email="same.cycle@example.com",
         status=UserStatus.ACTIVE,
         current_week=CurrentWeekUsage(
-            week_id="2026-W41",
+            week_id=current_week_str,
             window_start_utc=t0,
             total_tokens=1000000,
             gross_spend_usd=5.00,

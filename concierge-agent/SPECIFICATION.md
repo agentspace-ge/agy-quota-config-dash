@@ -3,7 +3,7 @@
 **Document Version:** 2.0  
 **Target Platform:** Google Vertex AI Agent Engine (Reasoning Engine), Gemini Enterprise  
 **Framework:** Google Agent Development Kit (ADK) / Python SDK  
-**Underlying Model:** `gemini-3.5-flash` (Global endpoint)  
+**Underlying Model:** `gemini-3.7-flash` (Global endpoint)  
 
 ---
 
@@ -31,7 +31,7 @@ flowchart TD
     end
 
     subgraph AgentEngine ["Vertex AI Agent Engine (google-adk)"]
-        Coordinator["<b>Root Coordinator: antigravity_quota_concierge</b>\n- Mode: Conversational Coordinator\n- Model: gemini-3.5-flash\n- Tools: get_my_quota_status, get_model_efficiency_insights"]
+        Coordinator["<b>Root Coordinator: antigravity_quota_concierge</b>\n- Mode: Conversational Coordinator\n- Model: gemini-3.7-flash\n- Tools: get_my_quota_status, get_model_efficiency_insights"]
         
         TaskAgent["<b>Specialist Agent: quota_request_agent</b>\n- Mode: task (ADK 2.0 Task Delegation)\n- Output Schema: QuotaRequestTaskOutput\n- Tools: get_quota_request_options, submit_quota_increase_request,\n  get_my_quota_requests, cancel_pending_quota_request"]
 
@@ -226,5 +226,5 @@ PYTHONPATH=concierge-agent python3 -m antigravity_quota_concierge.deploy_agent_e
 ## 7. Deployment & Publishing Specification
 
 1. **GCS Artifact Staging:** Provisions `gs://<PROJECT_ID>-agent-engine-staging` in `us-central1` via Terraform (`terraform/storage.tf`).
-2. **Vertex AI Reasoning Engine:** Deploys `AntigravityConciergeAdkApp` via `deploy.sh` with `spec.agent_framework = "google-adk"` and model `gemini-3.5-flash` (`GOOGLE_CLOUD_LOCATION="global"`).
+2. **Vertex AI Reasoning Engine:** Deploys `AntigravityConciergeAdkApp` via `deploy.sh` with `spec.agent_framework = "google-adk"` and model `gemini-3.7-flash` (`GOOGLE_CLOUD_LOCATION="global"`).
 3. **Gemini Enterprise Publishing:** Registered via `agents-cli publish gemini` targeting the enterprise App ID.

@@ -366,7 +366,7 @@ To eliminate manual directory setup, group creation and permission delegation ar
       "estimated_cached_ratio": 0.10
     },
     "gemini-3-pro": {
-      "display_name": "Gemini 3.1 Pro / 3.0 Pro",
+      "display_name": "Gemini 3.1 Pro",
       "log_pattern": "%3%pro%",
       "input_price_per_million": 1.25,
       "output_price_per_million": 5.00,
@@ -374,26 +374,6 @@ To eliminate manual directory setup, group creation and permission delegation ar
       "estimated_input_ratio": 0.70,
       "estimated_output_ratio": 0.20,
       "estimated_cached_ratio": 0.10
-    },
-    "gemini-2.5-pro": {
-      "display_name": "Gemini 2.5 Pro",
-      "log_pattern": "%2.5%pro%",
-      "input_price_per_million": 1.25,
-      "output_price_per_million": 5.00,
-      "cached_price_per_million": 0.30,
-      "estimated_input_ratio": 0.70,
-      "estimated_output_ratio": 0.20,
-      "estimated_cached_ratio": 0.10
-    },
-    "gemini-3.5-flash": {
-      "display_name": "Gemini 3.5 Flash",
-      "log_pattern": "%3.5%flash%",
-      "input_price_per_million": 0.15,
-      "output_price_per_million": 0.60,
-      "cached_price_per_million": 0.0375,
-      "estimated_input_ratio": 0.75,
-      "estimated_output_ratio": 0.20,
-      "estimated_cached_ratio": 0.05
     },
     "gemini-3.8-flash": {
       "display_name": "Gemini 3.8 Flash (Antigravity Default)",
@@ -405,9 +385,9 @@ To eliminate manual directory setup, group creation and permission delegation ar
       "estimated_output_ratio": 0.15,
       "estimated_cached_ratio": 0.05
     },
-    "gemini-3.6-flash": {
-      "display_name": "Gemini 3.6 / 3.7 Flash",
-      "log_pattern": "%3.6%flash%",
+    "gemini-3.7-flash": {
+      "display_name": "Gemini 3.7 Flash",
+      "log_pattern": "%3.7%flash%",
       "input_price_per_million": 0.075,
       "output_price_per_million": 0.30,
       "cached_price_per_million": 0.01875,
@@ -415,9 +395,9 @@ To eliminate manual directory setup, group creation and permission delegation ar
       "estimated_output_ratio": 0.15,
       "estimated_cached_ratio": 0.05
     },
-    "gemini-2.5-flash": {
-      "display_name": "Gemini 2.5 Flash",
-      "log_pattern": "%2.5%flash%",
+    "gemini-3.6-flash": {
+      "display_name": "Gemini 3.6 Flash",
+      "log_pattern": "%3.6%flash%",
       "input_price_per_million": 0.075,
       "output_price_per_million": 0.30,
       "cached_price_per_million": 0.01875,
@@ -846,7 +826,7 @@ To satisfy enterprise FinOps compliance and SIEM ingestion, all state changes ar
 
 The portal is actively running with:
 1. **Live Inference Log Ingestion**: Ingesting daily sharded telemetry from `businessaicode.googleapis.com` via a consolidated BigQuery view.
-2. **Dynamic Pricing Calibration**: Supporting current Gemini and Anthropic models including `gemini-4-argon`, `claude-opus-5-5`, `claude-sonnet-5-5`, `gemini-3.8-flash`, `gemini-3.1-pro-preview`, and `gemini-3.5-flash-lite`.
+2. **Dynamic Pricing Calibration**: Supporting current Gemini and Anthropic models including `gemini-4-argon`, `claude-opus-5-5`, `claude-sonnet-5-5`, `gemini-3.8-flash`, `gemini-3.7-flash`, `gemini-3.6-flash`, and `gemini-3.1-pro`.
 3. **Automated Directory Governance**: Cloud Identity IAM gatekeeper groups (`antigravity-active@` / `antigravity-throttled@`) fully provisioned and managed via Terraform.
 4. **Quota Management Groups**: 3-tier policy hierarchy (`User Custom Quota > Group Quota > Global Default`) with pre-seeded "Developers" ($50/wk) and "Business Users" ($10/wk) groups, group exemption cascading, and full CRUD REST APIs.
 5. **Three-Tab Responsive Governance UI**: Dedicated "Users", "Groups", and "Quota Increase Requests" tabs with client-side table pagination and pending request badges.

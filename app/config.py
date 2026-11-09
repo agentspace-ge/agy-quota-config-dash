@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     GCP_AUDIT_LOG_NAME: str = "antigravity-quota-audit"
     SCHEDULER_INTERVAL_HOURS: int = 1
     CONCIERGE_SERVICE_ACCOUNT_EMAIL: str = ""
-    CONCIERGE_MODEL: str = "gemini-3.5-flash"
+    CONCIERGE_MODEL: str = "gemini-3.7-flash"
     PORT: int = 8080
     HOST: str = "0.0.0.0"
 

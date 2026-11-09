@@ -2,7 +2,7 @@
 """Remote Verification Script for Deployed Antigravity Quota Concierge on Vertex AI Agent Engine.
 
 Queries the live `ReasoningEngine` endpoint on Vertex AI to verify:
-1. Model inference using `gemini-3.5-flash`.
+1. Model inference using `gemini-3.7-flash`.
 2. Diagnosis tool execution for customer-neutral persona (`alex.morgan@example.com`).
 3. Multi-agent delegation from `antigravity_quota_concierge` to `quota_request_agent`.
 4. Streaming response compatibility (`stream_query`).

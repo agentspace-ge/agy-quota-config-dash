@@ -17,7 +17,7 @@ This guide walks any engineer through developing, testing, deploying, and mainta
   |                                                             |
   |  +-------------------------------------------------------+  |
   |  | Root Agent: antigravity_quota_concierge               |  |
-  |  | Model: gemini-3.5-flash (global location)             |  |
+  |  | Model: gemini-3.7-flash (global location)             |  |
   |  | Tools: get_my_quota_status, get_model_efficiency...   |  |
   |  +-------------------------------------------------------+  |
   |                              |                              |
@@ -52,7 +52,7 @@ This guide walks any engineer through developing, testing, deploying, and mainta
 - **Structured State Control & Namespacing (`user:*`):** User identity and persistent preferences are maintained via ADK's native `user:*` namespace (`user:email`, `user:preferred_option`, `user:last_reason_category`) validated with Pydantic (`ConciergeState`).
 - **ADK 2.0 Task Delegation:** `quota_request_agent` runs in `mode="task"` with typed `output_schema=QuotaRequestTaskOutput`, providing deterministic task boundaries and structured handoffs.
 - **Trusted Service Account Impersonation (`app/api/deps.py`):** The Cloud Run backend validates Google-signed OIDC identity tokens and allows the Vertex AI Reasoning Engine service account (`service-<PROJECT_NUMBER>@gcp-sa-aiplatform-re.iam.gserviceaccount.com`) to pass `X-Impersonate-User` headers on behalf of employees.
-- **Model Standard:** Always use `gemini-3.5-flash` (`CONCIERGE_MODEL="gemini-3.5-flash"`). The model is served from `global`; container environment variables must set `GOOGLE_CLOUD_LOCATION="global"` when deployed in `us-central1`.
+- **Model Standard:** Always use `gemini-3.7-flash` (`CONCIERGE_MODEL="gemini-3.7-flash"`). The model is served from `global`; container environment variables must set `GOOGLE_CLOUD_LOCATION="global"` when deployed in `us-central1`.
 - **In-App Admin Review Queue:** Requests are stored directly in Firestore and displayed in the Admin Console under the **Quota Increase Requests** tab. No external email/SMTP server is needed.
 
 ---
@@ -106,7 +106,7 @@ uv pip install -e ".[dev]"
 
 export PORTAL_API_BASE_URL="http://localhost:8080"
 export DEFAULT_DEMO_USER_EMAIL="alex.morgan@example.com"
-export CONCIERGE_MODEL="gemini-3.5-flash"
+export CONCIERGE_MODEL="gemini-3.7-flash"
 
 adk web --host "::" --port 8001 .
 ```
@@ -156,7 +156,7 @@ cd concierge-agent
 ### What `deploy.sh` Does:
 1. Validates the GCS staging bucket exists (or creates it automatically).
 2. Packages clean relative imports (`antigravity_quota_concierge`) without host path pollution.
-3. Sets `GOOGLE_CLOUD_LOCATION="global"` and `CONCIERGE_MODEL="gemini-3.5-flash"` in runtime `env_vars`.
+3. Sets `GOOGLE_CLOUD_LOCATION="global"` and `CONCIERGE_MODEL="gemini-3.7-flash"` in runtime `env_vars`.
 4. Deploys the `AntigravityConciergeAdkApp` via `vertexai.preview.reasoning_engines.ReasoningEngine.create`.
 5. Patches `spec.agent_framework = "google-adk"` via Vertex AI API so the Cloud Console playground is unlocked.
 6. Writes output metadata to `concierge-agent/deployment_metadata.json`.

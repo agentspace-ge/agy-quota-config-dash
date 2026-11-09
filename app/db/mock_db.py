@@ -160,7 +160,7 @@ class MockDatabase:
         )
 
         # 3. Charlie - Auto Throttled (Breached Quota + Overage)
-        charlie_tokens = {"gemini-3-pro": 5500000, "gemini-2.5-pro": 1000000}
+        charlie_tokens = {"gemini-3-pro": 5500000, "gemini-4-argon": 1000000}
         self._users["charlie.davis@example.com"] = User(
             email="charlie.davis@example.com",
             group_id="business-users",
@@ -185,7 +185,7 @@ class MockDatabase:
                     cached_spend_usd=0.60,
                 ),
                 tokens_by_model=charlie_tokens,
-                spend_by_model={"gemini-3-pro": 12.65, "gemini-2.5-pro": 2.30},
+                spend_by_model={"gemini-3-pro": 11.54, "gemini-4-argon": 3.41},
                 credit_utilization_percentage=149.5,
                 last_active=now - timedelta(hours=2),
             ),

@@ -439,7 +439,7 @@ def get_model_efficiency_insights(
 
     Computes Frontier (`Argon`/`Pro`/`Opus`/`Sonnet`) vs Lightweight (`Flash`) spend percentages
     from `spend_by_model` and `tokens_by_model`, explaining why quota was consumed rapidly
-    and how switching routine tasks to `gemini-3.5-flash` stretches weekly quota 3–4x further.
+    and how switching routine tasks to `gemini-3.7-flash` stretches weekly quota 3–4x further.
 
     Args:
         user_email: Optional email override.
@@ -506,7 +506,7 @@ def get_model_efficiency_insights(
             f"{frontier_pct:.0f}% of your weekly spend (${frontier_spend:.2f} of ${total_model_spend:.2f}, "
             f"led by `{top_model}` at ${top_model_spend:.2f}) came from Frontier reasoning models "
             f"(Argon, Opus, Sonnet, Pro). Switching routine code edits, unit test generation, and quick Q&A "
-            f"to `gemini-3.5-flash` or `gemini-3.8-flash` reduces token cost by {savings_pct_est}, allowing "
+            f"to `gemini-3.7-flash` or `gemini-3.8-flash` reduces token cost by {savings_pct_est}, allowing "
             f"your ${status_info['weekly_limit_usd']:.2f} weekly quota to last {stretch_factor} while reserving "
             f"Frontier models for complex multi-file architecture tasks."
         )
@@ -514,11 +514,11 @@ def get_model_efficiency_insights(
         coaching_recommendation = (
             f"Your model mix is well-balanced ({lightweight_pct:.0f}% Lightweight Flash models vs "
             f"{frontier_pct:.0f}% Frontier models across ${total_model_spend:.2f} total spend). "
-            f"Continuing to use `gemini-3.5-flash` for high-frequency iterations keeps token burn low."
+            f"Continuing to use `gemini-3.7-flash` for high-frequency iterations keeps token burn low."
         )
     else:
         coaching_recommendation = (
-            "You have $0.00 recorded model spend so far this week. Using `gemini-3.5-flash` for "
+            "You have $0.00 recorded model spend so far this week. Using `gemini-3.7-flash` for "
             "routine coding and reserving Frontier models for complex design work will maximize your weekly budget."
         )
 
