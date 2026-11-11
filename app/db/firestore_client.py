@@ -8,6 +8,7 @@ from google.cloud import firestore
 from app.audit.emitter import BaseAuditEmitter
 from app.db.models import (
     DEFAULT_MODEL_PRICING,
+    DEPRECATED_MODEL_KEYS,
     AppConfig,
     AuditEvent,
     CreditPoolStats,
@@ -51,17 +52,26 @@ class FirestoreDatabase:
                 # Parse models dict
                 models_data = data.get("models", {})
                 models = {}
+                pruned_deprecated = False
                 for k, v in models_data.items():
+                    if k in DEPRECATED_MODEL_KEYS:
+                        pruned_deprecated = True
+                        continue
                     models[k] = ModelPricing(**v)
+                new_defaults_merged = False
                 if not models:
-                    models = DEFAULT_MODEL_PRICING
+                    models = dict(DEFAULT_MODEL_PRICING)
                 else:
-                    # Auto-merge any newly defined default models (e.g. gemini-3.8-flash)
+                    # Auto-merge any newly defined default models (e.g. gemini-3.7-flash, gemini-3.8-flash)
                     for def_k, def_v in DEFAULT_MODEL_PRICING.items():
                         if def_k not in models:
                             models[def_k] = def_v
+                            new_defaults_merged = True
                 data["models"] = models
-                return AppConfig(**data)
+                config = AppConfig(**data)
+                if pruned_deprecated or new_defaults_merged:
+                    self.update_config(config)
+                return config
             else:
                 # Initialize default config doc
                 default_config = AppConfig()
@@ -73,7 +83,7 @@ class FirestoreDatabase:
 
     def update_config(self, config: AppConfig) -> AppConfig:
         doc_ref = self.config_collection.document("app_config")
-        doc_ref.set(config.model_dump(mode="json"), merge=True)
+        doc_ref.set(config.model_dump(mode="json"))
         return config
 
     def get_user(self, email: str) -> User | None:

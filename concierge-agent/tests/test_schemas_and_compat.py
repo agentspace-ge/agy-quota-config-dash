@@ -37,7 +37,7 @@ class TestSchemasAndCompat(unittest.TestCase):
     def test_llm_agent_compat_supports_mode_and_output_schema(self):
         agent = LlmAgent(
             name="test_agent",
-            model="gemini-3.5-flash",
+            model="gemini-3.7-flash",
             mode="task",
             output_schema=QuotaRequestTaskOutput,
         )

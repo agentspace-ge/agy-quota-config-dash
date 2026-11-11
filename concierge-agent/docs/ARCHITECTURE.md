@@ -1,8 +1,8 @@
 # Antigravity Quota Concierge — Technical Architecture
 
-## 1. Multi-Agent Topology (`gemini-3.5-flash`)
+## 1. Multi-Agent Topology (`gemini-3.7-flash`)
 
-The package defines a 2-agent hierarchy using the Google Agent Development Kit (`google-adk`) and `gemini-3.5-flash`:
+The package defines a 2-agent hierarchy using the Google Agent Development Kit (`google-adk`) and `gemini-3.7-flash`:
 
 ```mermaid
 flowchart TB
@@ -11,8 +11,8 @@ flowchart TB
     end
 
     subgraph AE["Vertex AI Agent Engine (AdkApp)"]
-        Root["<b>antigravity_quota_concierge</b><br/>Root Diagnostic & Coaching Agent<br/>Model: gemini-3.5-flash"]
-        Sub["<b>quota_request_agent</b><br/>Quota Request Specialist Sub-Agent<br/>Model: gemini-3.5-flash"]
+        Root["<b>antigravity_quota_concierge</b><br/>Root Diagnostic & Coaching Agent<br/>Model: gemini-3.7-flash"]
+        Sub["<b>quota_request_agent</b><br/>Quota Request Specialist Sub-Agent<br/>Model: gemini-3.7-flash"]
         Auth["<b>auth.py</b><br/>ToolContext JWT Resolver +<br/>Cloud Run OIDC Signer"]
 
         Root -->|"transfer_to_agent"| Sub

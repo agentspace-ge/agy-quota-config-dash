@@ -117,11 +117,11 @@ def create_portal_state() -> dict[str, Any]:
                 },
                 "tokens_by_model": {
                     "gemini-3.1-pro": 1_850_000,
-                    "gemini-3.5-flash": 600_000,
+                    "gemini-3.7-flash": 600_000,
                 },
                 "spend_by_model": {
                     "gemini-3.1-pro": 5.34,
-                    "gemini-3.5-flash": 0.70,
+                    "gemini-3.7-flash": 0.70,
                 },
                 "credit_utilization_percentage": 100.7,
                 "last_active": (now - timedelta(minutes=8)).isoformat(),
@@ -155,11 +155,11 @@ def create_portal_state() -> dict[str, Any]:
                 },
                 "tokens_by_model": {
                     "gemini-3.1-pro": 11_000_000,
-                    "gemini-3.5-flash": 3_200_000,
+                    "gemini-3.7-flash": 3_200_000,
                 },
                 "spend_by_model": {
                     "gemini-3.1-pro": 39.60,
-                    "gemini-3.5-flash": 5.40,
+                    "gemini-3.7-flash": 5.40,
                 },
                 "credit_utilization_percentage": 90.0,
                 "last_active": (now - timedelta(minutes=14)).isoformat(),
@@ -192,11 +192,11 @@ def create_portal_state() -> dict[str, Any]:
                     "cached_spend_usd": 0.30,
                 },
                 "tokens_by_model": {
-                    "gemini-3.5-flash": 1_500_000,
+                    "gemini-3.7-flash": 1_500_000,
                     "gemini-3.1-pro": 400_000,
                 },
                 "spend_by_model": {
-                    "gemini-3.5-flash": 2.95,
+                    "gemini-3.7-flash": 2.95,
                     "gemini-3.1-pro": 1.25,
                 },
                 "credit_utilization_percentage": 42.0,
@@ -354,12 +354,12 @@ def create_portal_state() -> dict[str, Any]:
                 "estimated_output_ratio": 0.20,
                 "estimated_cached_ratio": 0.10,
             },
-            "gemini-3.5-flash": {
-                "display_name": "Gemini 3.5 Flash",
-                "log_pattern": "gemini-3.5-flash",
-                "input_price_per_million": 0.15,
-                "output_price_per_million": 0.60,
-                "cached_price_per_million": 0.0375,
+            "gemini-3.7-flash": {
+                "display_name": "Gemini 3.7 Flash",
+                "log_pattern": "gemini-3.7-flash",
+                "input_price_per_million": 0.075,
+                "output_price_per_million": 0.30,
+                "cached_price_per_million": 0.01875,
                 "estimated_input_ratio": 0.70,
                 "estimated_output_ratio": 0.20,
                 "estimated_cached_ratio": 0.10,
@@ -1197,7 +1197,7 @@ PLAYGROUND_HTML = """<!DOCTYPE html>
     <div class="brand">
       <strong style="font-size: 16px;">Antigravity Quota Concierge</strong>
       <span class="badge">ADK Stage 1 Local Playground</span>
-      <span class="badge" style="color: var(--accent-2); border-color: rgba(129,140,248,0.4);">gemini-3.5-flash</span>
+      <span class="badge" style="color: var(--accent-2); border-color: rgba(129,140,248,0.4);">gemini-3.7-flash</span>
     </div>
     <div class="controls">
       <label style="font-size: 12px; color: var(--muted);">Employee Session Identity:</label>
@@ -1232,8 +1232,8 @@ PLAYGROUND_HTML = """<!DOCTYPE html>
     <section class="chat-pane">
       <div id="messages" class="messages">
         <div class="msg agent">
-          <div class="msg-meta">antigravity_quota_concierge • gemini-3.5-flash</div>
-          Hello! I am the <strong>Antigravity Quota Concierge</strong>. Ask me why your Antigravity access is paused, how to stretch your weekly quota with <code>gemini-3.5-flash</code>, or to submit a quota increase request.
+          <div class="msg-meta">antigravity_quota_concierge • gemini-3.7-flash</div>
+          Hello! I am the <strong>Antigravity Quota Concierge</strong>. Ask me why your Antigravity access is paused, how to stretch your weekly quota with <code>gemini-3.7-flash</code>, or to submit a quota increase request.
         </div>
       </div>
       <div class="chips">
@@ -1422,7 +1422,7 @@ def run_smoke_test(portal_port: int) -> None:
     os.environ["CONCIERGE_DEV_DEFAULT_USER"] = "alex.morgan@example.com"
 
     print("=" * 78)
-    print("STAGE 1 E2E SMOKE VERIFICATION — ANTIGRAVITY QUOTA CONCIERGE (gemini-3.5-flash)")
+    print("STAGE 1 E2E SMOKE VERIFICATION — ANTIGRAVITY QUOTA CONCIERGE (gemini-3.7-flash)")
     print("=" * 78)
 
     steps = [

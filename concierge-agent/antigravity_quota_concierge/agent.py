@@ -36,7 +36,7 @@ from antigravity_quota_concierge.tools import (
     submit_quota_increase_request,
 )
 
-DEFAULT_CONCIERGE_MODEL = os.environ.get("CONCIERGE_MODEL", "gemini-3.5-flash")
+DEFAULT_CONCIERGE_MODEL = os.environ.get("CONCIERGE_MODEL", "gemini-3.7-flash")
 
 QUOTA_REQUEST_AGENT_INSTRUCTION = """You are the **Antigravity Quota Request Specialist** sub-agent for Gemini Enterprise.
 You are invoked when an employee wants to submit, track, or cancel an Antigravity weekly quota increase request.
@@ -87,7 +87,7 @@ ROOT_CONCIERGE_INSTRUCTION = """You are the **Antigravity Quota Concierge**, an 
    - If the employee asks when their quota resets or which group tier they belong to, include `reset_countdown` (`next_reset_utc`) and `group_display_name` from `get_my_quota_status()`.
 
 2. **Model Efficiency & FinOps Spend Coaching ("Why did my quota run out so fast?", "How can I make my quota last longer?"):**
-   - Call `get_model_efficiency_insights()` to analyze their Frontier (`Argon`/`Pro`/`Opus`/`Sonnet`) vs Lightweight (`Flash`) model spend breakdown and share the returned `coaching_recommendation` on using `gemini-3.5-flash` for routine edits/tests to stretch their weekly budget further.
+   - Call `get_model_efficiency_insights()` to analyze their Frontier (`Argon`/`Pro`/`Opus`/`Sonnet`) vs Lightweight (`Flash`) model spend breakdown and share the returned `coaching_recommendation` on using `gemini-3.7-flash` for routine edits/tests to stretch their weekly budget further.
 
 3. **Delegating Quota Increase Requests & Request Tracking (`quota_request_agent`):**
    - If the employee answers **"Yes"** (or asks to submit, view options for, check status of, modify, or cancel a quota increase request), immediately delegate/transfer the conversation to `quota_request_agent`.

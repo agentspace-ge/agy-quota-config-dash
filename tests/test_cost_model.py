@@ -12,10 +12,10 @@ from app.db.models import DEFAULT_MODEL_PRICING
 def test_match_model_pricing():
     # Exact and pattern matching tests
     pricing = match_model_pricing("gemini-3-pro", DEFAULT_MODEL_PRICING)
-    assert pricing.display_name == "Gemini 3.1 Pro / 3.0 Pro"
+    assert pricing.display_name == "Gemini 3.1 Pro"
 
     pricing_flash = match_model_pricing("models/gemini-3.6-flash-preview", DEFAULT_MODEL_PRICING)
-    assert pricing_flash.display_name == "Gemini 3.6 / 3.7 Flash"
+    assert pricing_flash.display_name == "Gemini 3.6 Flash"
 
     pricing_fallback = match_model_pricing("unknown-custom-model", DEFAULT_MODEL_PRICING)
     assert pricing_fallback.display_name == "Default Model Fallback"
@@ -131,8 +131,8 @@ def test_match_gemini_4_argon_and_claude_models():
     pricing_opus_46 = match_model_pricing("claude-opus-4-6-thinking", DEFAULT_MODEL_PRICING)
     assert pricing_opus_46.display_name == "Anthropic Claude Opus 5.5 / 4.6"
 
-    # Literal dot escaping: '3x5' must NOT match '%3.5%flash%'
-    non_dot_match = match_model_pricing("gemini-3x5-flash", DEFAULT_MODEL_PRICING)
+    # Literal dot escaping: '3x8' must NOT match '%3.8%flash%'
+    non_dot_match = match_model_pricing("gemini-3x8-flash", DEFAULT_MODEL_PRICING)
     assert non_dot_match.display_name == "Default Model Fallback"
 
 
@@ -148,4 +148,106 @@ def test_calculate_blended_rate_new_models():
     # claude-sonnet-5-5: 0.70 * 2.00 + 0.20 * 10.00 + 0.10 * 0.20 = 1.40 + 2.00 + 0.02 = 3.4200
     sonnet_rate = calculate_blended_rate_per_million(DEFAULT_MODEL_PRICING["claude-sonnet-5-5"])
     assert round(sonnet_rate, 4) == 3.4200
+
+
+def test_deprecated_models_removed_and_fallback():
+    from app.db.models import DEPRECATED_MODEL_KEYS
+
+    assert DEPRECATED_MODEL_KEYS == {"gemini-2.5-pro", "gemini-2.5-flash", "gemini-3.5-flash"}
+
+    for dep_key in ("gemini-2.5-pro", "gemini-2.5-flash", "gemini-3.5-flash"):
+        assert dep_key not in DEFAULT_MODEL_PRICING
+        fallback = match_model_pricing(dep_key, DEFAULT_MODEL_PRICING)
+        assert fallback.display_name == "Default Model Fallback"
+
+
+def test_active_models_present_and_matched():
+    assert "gemini-3.7-flash" in DEFAULT_MODEL_PRICING
+    assert "gemini-3.6-flash" in DEFAULT_MODEL_PRICING
+    assert "gemini-3.8-flash" in DEFAULT_MODEL_PRICING
+    assert "gemini-3-pro" in DEFAULT_MODEL_PRICING
+    assert "gemini-4-argon" in DEFAULT_MODEL_PRICING
+
+    assert DEFAULT_MODEL_PRICING["gemini-3.7-flash"].display_name == "Gemini 3.7 Flash"
+    assert DEFAULT_MODEL_PRICING["gemini-3.6-flash"].display_name == "Gemini 3.6 Flash"
+    assert DEFAULT_MODEL_PRICING["gemini-3-pro"].display_name == "Gemini 3.1 Pro"
+
+    # Match test for gemini-3.7-flash variants
+    p_37 = match_model_pricing("gemini-3.7-flash-medium", DEFAULT_MODEL_PRICING)
+    assert p_37.display_name == "Gemini 3.7 Flash"
+
+    p_37_vertex = match_model_pricing(
+        "projects/12345/locations/global/publishers/google/models/gemini-3.7-flash-high",
+        DEFAULT_MODEL_PRICING,
+    )
+    assert p_37_vertex.display_name == "Gemini 3.7 Flash"
+
+
+def test_firestore_get_config_prunes_deprecated_models():
+    from unittest.mock import MagicMock, patch
+    from app.db.firestore_client import FirestoreDatabase
+
+    with patch("app.db.firestore_client.firestore.Client") as mock_client_cls:
+        mock_client = MagicMock()
+        mock_client_cls.return_value = mock_client
+
+        mock_doc_ref = MagicMock()
+        mock_doc = MagicMock()
+        mock_doc.exists = True
+        mock_doc.to_dict.return_value = {
+            "doc_id": "app_config",
+            "models": {
+                "gemini-3-pro": DEFAULT_MODEL_PRICING["gemini-3-pro"].model_dump(),
+                "gemini-2.5-pro": {
+                    "display_name": "Gemini 2.5 Pro",
+                    "log_pattern": "%2.5%pro%",
+                    "input_price_per_million": 1.25,
+                    "output_price_per_million": 5.00,
+                    "cached_price_per_million": 0.30,
+                    "estimated_input_ratio": 0.70,
+                    "estimated_output_ratio": 0.20,
+                    "estimated_cached_ratio": 0.10,
+                },
+                "gemini-2.5-flash": {
+                    "display_name": "Gemini 2.5 Flash",
+                    "log_pattern": "%2.5%flash%",
+                    "input_price_per_million": 0.075,
+                    "output_price_per_million": 0.30,
+                    "cached_price_per_million": 0.01875,
+                    "estimated_input_ratio": 0.80,
+                    "estimated_output_ratio": 0.15,
+                    "estimated_cached_ratio": 0.05,
+                },
+                "gemini-3.5-flash": {
+                    "display_name": "Gemini 3.5 Flash",
+                    "log_pattern": "%3.5%flash%",
+                    "input_price_per_million": 0.15,
+                    "output_price_per_million": 0.60,
+                    "cached_price_per_million": 0.0375,
+                    "estimated_input_ratio": 0.75,
+                    "estimated_output_ratio": 0.20,
+                    "estimated_cached_ratio": 0.05,
+                },
+            },
+        }
+        mock_doc_ref.get.return_value = mock_doc
+        mock_client.collection.return_value.document.return_value = mock_doc_ref
+
+        db = FirestoreDatabase(project_id="test-proj")
+        cfg = db.get_config()
+
+        assert "gemini-2.5-pro" not in cfg.models
+        assert "gemini-2.5-flash" not in cfg.models
+        assert "gemini-3.5-flash" not in cfg.models
+        assert "gemini-3-pro" in cfg.models
+        assert "gemini-3.7-flash" in cfg.models
+
+        # Verify Firestore document was updated to persist the pruned models map without merge=True
+        mock_doc_ref.set.assert_called_once()
+        set_args, set_kwargs = mock_doc_ref.set.call_args
+        assert set_kwargs == {}
+        assert "gemini-2.5-pro" not in set_args[0]["models"]
+        assert "gemini-2.5-flash" not in set_args[0]["models"]
+        assert "gemini-3.5-flash" not in set_args[0]["models"]
+
 

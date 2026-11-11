@@ -74,7 +74,7 @@ uv pip install -e ".[dev]"
 
 export PORTAL_API_BASE_URL="http://localhost:8080"
 export DEFAULT_DEMO_USER_EMAIL="alex.morgan@example.com"
-export CONCIERGE_MODEL="gemini-3.5-flash"
+export CONCIERGE_MODEL="gemini-3.7-flash"
 
 adk web .
 ```
@@ -176,8 +176,8 @@ When the Reasoning Engine calls the Antigravity Quota Portal backend:
 - **Delegated Caller Identity:** Trusted service accounts are permitted to provide `X-Impersonate-User` headers or payload `user_email` fields to act on behalf of authenticated employees.
 
 ### 3. Vertex AI Reasoning Engine Specifics
-- **Model Standard:** Configured to use `gemini-3.5-flash` (`CONCIERGE_MODEL="gemini-3.5-flash"`).
-- **Global Endpoint Routing:** For deployments in regional locations like `us-central1`, `GOOGLE_CLOUD_LOCATION="global"` is set in the container environment variables so `gemini-3.5-flash` resolves properly.
+- **Model Standard:** Configured to use `gemini-3.7-flash` (`CONCIERGE_MODEL="gemini-3.7-flash"`).
+- **Global Endpoint Routing:** For deployments in regional locations like `us-central1`, `GOOGLE_CLOUD_LOCATION="global"` is set in the container environment variables so `gemini-3.7-flash` resolves properly.
 - **Agent Framework Specification:** When deployed via the Python SDK, `spec.agent_framework = "google-adk"` is patched on the `ReasoningEngine` resource to enable the Vertex AI Agent Engine Console Playground and Gemini Enterprise integration.
 
 ### 4. Admin Review Queue Lifecycle
