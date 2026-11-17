@@ -43,6 +43,9 @@ class ModelPricing(BaseModel):
     estimated_cached_ratio: float
 
 
+DEPRECATED_MODEL_KEYS: set[str] = {"gemini-2.5-pro", "gemini-2.5-flash"}
+
+
 DEFAULT_MODEL_PRICING: dict[str, ModelPricing] = {
     "gemini-4-argon": ModelPricing(
         display_name="Gemini 4 Argon (High / Medium / Low)",
@@ -104,16 +107,6 @@ DEFAULT_MODEL_PRICING: dict[str, ModelPricing] = {
         estimated_output_ratio=0.20,
         estimated_cached_ratio=0.10,
     ),
-    "gemini-2.5-pro": ModelPricing(
-        display_name="Gemini 2.5 Pro",
-        log_pattern="%2.5%pro%",
-        input_price_per_million=1.25,
-        output_price_per_million=5.00,
-        cached_price_per_million=0.30,
-        estimated_input_ratio=0.70,
-        estimated_output_ratio=0.20,
-        estimated_cached_ratio=0.10,
-    ),
     "gemini-3.5-flash": ModelPricing(
         display_name="Gemini 3.5 Flash",
         log_pattern="%3.5%flash%",
@@ -137,16 +130,6 @@ DEFAULT_MODEL_PRICING: dict[str, ModelPricing] = {
     "gemini-3.6-flash": ModelPricing(
         display_name="Gemini 3.6 / 3.7 Flash",
         log_pattern="%3.6%flash%",
-        input_price_per_million=0.075,
-        output_price_per_million=0.30,
-        cached_price_per_million=0.01875,
-        estimated_input_ratio=0.80,
-        estimated_output_ratio=0.15,
-        estimated_cached_ratio=0.05,
-    ),
-    "gemini-2.5-flash": ModelPricing(
-        display_name="Gemini 2.5 Flash",
-        log_pattern="%2.5%flash%",
         input_price_per_million=0.075,
         output_price_per_million=0.30,
         cached_price_per_million=0.01875,

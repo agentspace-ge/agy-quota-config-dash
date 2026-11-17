@@ -1,12 +1,17 @@
 """Unit tests for cost modeling, hinge points, and credit mechanics."""
 
+from unittest.mock import MagicMock, patch
+
+from google.cloud import firestore
+
 from app.core.cost_model import (
     calculate_blended_rate_per_million,
     calculate_model_spend,
     calculate_total_usage_costs,
     match_model_pricing,
 )
-from app.db.models import DEFAULT_MODEL_PRICING
+from app.db.firestore_client import FirestoreDatabase
+from app.db.models import DEFAULT_MODEL_PRICING, DEPRECATED_MODEL_KEYS, AppConfig
 
 
 def test_match_model_pricing():
@@ -176,4 +181,73 @@ def test_calculate_blended_rate_new_models():
     # claude-sonnet-5-5: 0.70 * 2.00 + 0.20 * 10.00 + 0.10 * 0.20 = 1.40 + 2.00 + 0.02 = 3.4200
     sonnet_rate = calculate_blended_rate_per_million(DEFAULT_MODEL_PRICING["claude-sonnet-5-5"])
     assert round(sonnet_rate, 4) == 3.4200
+
+
+def test_deprecated_gemini_2_5_models_removed():
+    """Verify deprecated Gemini 2.5 Pro/Flash are absent from DEFAULT_MODEL_PRICING and fall back."""
+    for key in ("gemini-2.5-pro", "gemini-2.5-flash"):
+        assert key in DEPRECATED_MODEL_KEYS
+        assert key not in DEFAULT_MODEL_PRICING
+        fallback = match_model_pricing(key, DEFAULT_MODEL_PRICING)
+        assert fallback.display_name == "Default Model Fallback"
+
+
+def test_firestore_config_prunes_deprecated_models():
+    """Verify FirestoreDatabase.get_config() and update_config() strip deprecated model keys."""
+    mock_doc = MagicMock()
+    mock_doc.exists = True
+    mock_doc.to_dict.return_value = {
+        "default_weekly_quota_usd": 10.0,
+        "models": {
+            "gemini-2.5-pro": {
+                "display_name": "Gemini 2.5 Pro",
+                "log_pattern": "%2.5%pro%",
+                "input_price_per_million": 1.25,
+                "output_price_per_million": 5.00,
+                "cached_price_per_million": 0.30,
+                "estimated_input_ratio": 0.70,
+                "estimated_output_ratio": 0.20,
+                "estimated_cached_ratio": 0.10,
+            },
+            "gemini-2.5-flash": {
+                "display_name": "Gemini 2.5 Flash",
+                "log_pattern": "%2.5%flash%",
+                "input_price_per_million": 0.075,
+                "output_price_per_million": 0.30,
+                "cached_price_per_million": 0.01875,
+                "estimated_input_ratio": 0.80,
+                "estimated_output_ratio": 0.15,
+                "estimated_cached_ratio": 0.05,
+            },
+            "gemini-4-argon": DEFAULT_MODEL_PRICING["gemini-4-argon"].model_dump(),
+        },
+    }
+
+    mock_doc_ref = MagicMock()
+    mock_doc_ref.get.return_value = mock_doc
+    mock_client = MagicMock()
+    mock_client.collection.return_value.document.return_value = mock_doc_ref
+
+    with patch("app.db.firestore_client.firestore.Client", return_value=mock_client):
+        db = FirestoreDatabase(project_id="test-project")
+        cfg = db.get_config()
+
+        assert "gemini-2.5-pro" not in cfg.models
+        assert "gemini-2.5-flash" not in cfg.models
+        assert "gemini-4-argon" in cfg.models
+        assert "gemini-4-carbon" in cfg.models
+        assert "gemini-4-hydrogen" in cfg.models
+
+        # Even if caller passes a config containing deprecated keys, update_config strips & deletes them
+        dirty_cfg = AppConfig()
+        dirty_cfg.models["gemini-2.5-pro"] = DEFAULT_MODEL_PRICING["default_fallback"]
+        dirty_cfg.models["gemini-2.5-flash"] = DEFAULT_MODEL_PRICING["default_fallback"]
+        saved = db.update_config(dirty_cfg)
+
+        assert "gemini-2.5-pro" not in saved.models
+        assert "gemini-2.5-flash" not in saved.models
+        set_call_args = mock_doc_ref.set.call_args
+        payload = set_call_args.args[0]
+        assert payload["models"]["gemini-2.5-pro"] is firestore.DELETE_FIELD
+        assert payload["models"]["gemini-2.5-flash"] is firestore.DELETE_FIELD
 
