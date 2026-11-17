@@ -8,6 +8,7 @@ from google.cloud import firestore
 from app.audit.emitter import BaseAuditEmitter
 from app.db.models import (
     DEFAULT_MODEL_PRICING,
+    DEPRECATED_MODEL_KEYS,
     AppConfig,
     AuditEvent,
     CreditPoolStats,
@@ -48,13 +49,15 @@ class FirestoreDatabase:
             doc = doc_ref.get()
             if doc.exists:
                 data = doc.to_dict() or {}
-                # Parse models dict
+                # Parse models dict, pruning deprecated model keys
                 models_data = data.get("models", {})
                 models = {}
                 for k, v in models_data.items():
+                    if k in DEPRECATED_MODEL_KEYS:
+                        continue
                     models[k] = ModelPricing(**v)
                 if not models:
-                    models = DEFAULT_MODEL_PRICING
+                    models = dict(DEFAULT_MODEL_PRICING)
                 else:
                     # Auto-merge any newly defined default models (e.g. gemini-3.8-flash)
                     for def_k, def_v in DEFAULT_MODEL_PRICING.items():
@@ -73,7 +76,13 @@ class FirestoreDatabase:
 
     def update_config(self, config: AppConfig) -> AppConfig:
         doc_ref = self.config_collection.document("app_config")
-        doc_ref.set(config.model_dump(mode="json"), merge=True)
+        for deprecated_key in DEPRECATED_MODEL_KEYS:
+            config.models.pop(deprecated_key, None)
+        payload = config.model_dump(mode="json")
+        # Ensure deprecated keys are removed from Firestore nested map even with merge=True
+        for deprecated_key in DEPRECATED_MODEL_KEYS:
+            payload.setdefault("models", {})[deprecated_key] = firestore.DELETE_FIELD
+        doc_ref.set(payload, merge=True)
         return config
 
     def get_user(self, email: str) -> User | None:

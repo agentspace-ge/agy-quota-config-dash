@@ -63,7 +63,7 @@ class MockBigQueryUsageClient:
             ),
             UserUsageRecord(
                 user_email="charlie.davis@example.com",
-                model_name="gemini-2.5-pro",
+                model_name="gemini-4-argon",
                 request_count=100,
                 token_count=1000000,
                 last_active=now - timedelta(hours=2),
