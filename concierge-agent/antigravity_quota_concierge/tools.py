@@ -6,8 +6,9 @@ Provides tools across the 2-agent topology:
      throttling state, 80% pacing warning, upstream weekly reset countdown, and group tier
      via `GET /api/auth/me`.
   2. `get_model_efficiency_insights` — Analyzes `spend_by_model` and `tokens_by_model`
-     (Frontier Pro/Opus/Sonnet vs Lightweight Flash split) to explain why quota ran out
-     quickly and coach the developer on stretching their weekly budget 3–4x further.
+     (Frontier Carbon/Argon/Pro/Opus/Sonnet vs Fast/Lightweight Hydrogen/Flash split) to explain
+     why quota ran out quickly and coach the developer on pairing Frontier planners with
+     `gemini-4-hydrogen` for fast execution and `gemini-3.5-flash` for routine tasks.
 
 - Quota Request Sub-Agent (`quota_request_agent`):
   3. `get_quota_request_options` — Presents the 3 numbered preset options (+$15 Temporary,
@@ -437,9 +438,10 @@ def get_model_efficiency_insights(
 ) -> dict[str, Any]:
     """Analyze the employee's model-by-model spend and provide FinOps efficiency coaching.
 
-    Computes Frontier (`Argon`/`Pro`/`Opus`/`Sonnet`) vs Lightweight (`Flash`) spend percentages
-    from `spend_by_model` and `tokens_by_model`, explaining why quota was consumed rapidly
-    and how switching routine tasks to `gemini-3.5-flash` stretches weekly quota 3–4x further.
+    Computes Frontier (`Carbon`/`Argon`/`Pro`/`Opus`/`Sonnet`) vs Fast/Lightweight (`Hydrogen`/`Flash`)
+    spend percentages from `spend_by_model` and `tokens_by_model`, explaining why quota was consumed
+    rapidly and how pairing Frontier planners with `gemini-4-hydrogen` for fast execution and switching
+    routine tasks to `gemini-3.5-flash` stretches weekly quota further.
 
     Args:
         user_email: Optional email override.
@@ -464,9 +466,9 @@ def get_model_efficiency_insights(
         tokens = int(tokens_by_model.get(model_name, 0))
         total_model_spend += spend
         lower = model_name.lower()
-        is_lightweight = any(k in lower for k in ("flash", "lite", "haiku", "nano"))
+        is_lightweight = any(k in lower for k in ("hydrogen", "flash", "lite", "haiku", "nano"))
         is_frontier = (not is_lightweight) and any(
-            k in lower for k in ("argon", "pro", "sonnet", "opus", "o1", "o3")
+            k in lower for k in ("carbon", "argon", "pro", "sonnet", "opus", "o1", "o3")
         )
         if is_frontier:
             frontier_spend += spend
@@ -490,12 +492,12 @@ def get_model_efficiency_insights(
 
     if frontier_pct >= 70.0 and total_model_spend > 0:
         # Dynamic potential savings rate vs Flash ($0.12–$0.26/1M blended):
-        # Opus ($6.82/1M -> ~95%, 10–15x), Argon/Sonnet ($3.41–$3.42/1M -> ~90%, 8–10x), Pro ($1.91/1M -> ~75%, 3–4x)
+        # Opus ($6.82/1M -> ~95%, 10–15x), Carbon/Argon/Sonnet ($3.41–$3.42/1M -> ~90%, 8–10x), Pro ($1.91/1M -> ~75%, 3–4x)
         top_lower = top_model.lower()
         if "opus" in top_lower:
             savings_pct_est = "~95%"
             stretch_factor = "10–15x longer"
-        elif "argon" in top_lower or "sonnet" in top_lower:
+        elif "carbon" in top_lower or "argon" in top_lower or "sonnet" in top_lower:
             savings_pct_est = "~90%"
             stretch_factor = "8–10x longer"
         else:
@@ -505,16 +507,17 @@ def get_model_efficiency_insights(
         coaching_recommendation = (
             f"{frontier_pct:.0f}% of your weekly spend (${frontier_spend:.2f} of ${total_model_spend:.2f}, "
             f"led by `{top_model}` at ${top_model_spend:.2f}) came from Frontier reasoning models "
-            f"(Argon, Opus, Sonnet, Pro). Switching routine code edits, unit test generation, and quick Q&A "
+            f"(Carbon, Argon, Opus, Sonnet, Pro). Pairing Frontier planners with `gemini-4-hydrogen` for "
+            f"fast execution and switching routine code edits, unit test generation, and quick Q&A "
             f"to `gemini-3.5-flash` or `gemini-3.8-flash` reduces token cost by {savings_pct_est}, allowing "
             f"your ${status_info['weekly_limit_usd']:.2f} weekly quota to last {stretch_factor} while reserving "
             f"Frontier models for complex multi-file architecture tasks."
         )
     elif total_model_spend > 0:
         coaching_recommendation = (
-            f"Your model mix is well-balanced ({lightweight_pct:.0f}% Lightweight Flash models vs "
+            f"Your model mix is well-balanced ({lightweight_pct:.0f}% Fast/Lightweight Hydrogen & Flash models vs "
             f"{frontier_pct:.0f}% Frontier models across ${total_model_spend:.2f} total spend). "
-            f"Continuing to use `gemini-3.5-flash` for high-frequency iterations keeps token burn low."
+            f"Continuing to use `gemini-4-hydrogen` for fast execution and `gemini-3.5-flash` for high-frequency iterations keeps token burn low."
         )
     else:
         coaching_recommendation = (

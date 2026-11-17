@@ -241,10 +241,15 @@ export const SelfServiceCard: React.FC<SelfServiceCardProps> = ({
     totalModelSpend += s;
     const lower = key.toLowerCase();
     const isLightweight =
-      lower.includes('flash') || lower.includes('lite') || lower.includes('haiku') || lower.includes('nano');
+      lower.includes('hydrogen') ||
+      lower.includes('flash') ||
+      lower.includes('lite') ||
+      lower.includes('haiku') ||
+      lower.includes('nano');
     if (
       !isLightweight &&
-      (lower.includes('argon') ||
+      (lower.includes('carbon') ||
+        lower.includes('argon') ||
         lower.includes('pro') ||
         lower.includes('sonnet') ||
         lower.includes('opus') ||
@@ -726,7 +731,7 @@ export const SelfServiceCard: React.FC<SelfServiceCardProps> = ({
                     ${frontierSpend.toFixed(2)}
                   </Typography>
                   <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                    Gemini 4 Argon, Gemini 3.1 Pro, Claude Opus / Sonnet
+                    Gemini 4 Carbon / Argon, Gemini 3.1 Pro, Claude Opus / Sonnet
                   </Typography>
                 </Paper>
               </Grid>
@@ -755,7 +760,7 @@ export const SelfServiceCard: React.FC<SelfServiceCardProps> = ({
                     ${lightweightSpend.toFixed(2)}
                   </Typography>
                   <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                    Gemini 3.8 Flash, Gemini 3.6 Flash, Gemini 3.5 Flash
+                    Gemini 4 Hydrogen, Gemini 3.8 Flash, Gemini 3.6 Flash, Gemini 3.5 Flash
                   </Typography>
                 </Paper>
               </Grid>

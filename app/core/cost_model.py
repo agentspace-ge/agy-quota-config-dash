@@ -9,7 +9,7 @@ from app.db.models import DEFAULT_MODEL_PRICING, ModelPricing, SpendBreakdown
 def match_model_pricing(model_name: str, pricing_matrix: dict[str, ModelPricing]) -> ModelPricing:
     """Match a model name from logs to the appropriate ModelPricing configuration.
 
-    Supports SQL LIKE style wildcards (e.g., '%4%argon%', '%claude%opus%', '%3.5%flash%')
+    Supports SQL LIKE style wildcards (e.g., '%4%argon%', '%4%carbon%', '%4%hydrogen%', '%claude%opus%', '%3.5%flash%')
     or fnmatch patterns across Gemini and Anthropic Vertex endpoints.
     """
     model_name_lower = model_name.lower().strip()

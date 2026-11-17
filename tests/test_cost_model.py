@@ -117,6 +117,26 @@ def test_match_gemini_4_argon_and_claude_models():
     )
     assert pricing_argon_endpoint.display_name == "Gemini 4 Argon (High / Medium / Low)"
 
+    # Gemini 4 Carbon (Frontier Planner)
+    pricing_carbon = match_model_pricing("gemini-4-carbon", DEFAULT_MODEL_PRICING)
+    assert pricing_carbon.display_name == "Gemini 4 Carbon (Frontier Planner)"
+
+    pricing_carbon_endpoint = match_model_pricing(
+        "projects/315513887778-prod/locations/global/publishers/google/models/gemini-4-carbon-high",
+        DEFAULT_MODEL_PRICING,
+    )
+    assert pricing_carbon_endpoint.display_name == "Gemini 4 Carbon (Frontier Planner)"
+
+    # Gemini 4 Hydrogen (Fast Execution)
+    pricing_hydrogen = match_model_pricing("gemini-4-hydrogen", DEFAULT_MODEL_PRICING)
+    assert pricing_hydrogen.display_name == "Gemini 4 Hydrogen (Fast Execution)"
+
+    pricing_hydrogen_endpoint = match_model_pricing(
+        "projects/315513887778-prod/locations/global/publishers/google/models/gemini-4-hydrogen-fast",
+        DEFAULT_MODEL_PRICING,
+    )
+    assert pricing_hydrogen_endpoint.display_name == "Gemini 4 Hydrogen (Fast Execution)"
+
     # Anthropic Claude Sonnet (5.5, 4.6, 3.7, and Vertex endpoints)
     pricing_sonnet = match_model_pricing("claude-sonnet-5-5-medium", DEFAULT_MODEL_PRICING)
     assert pricing_sonnet.display_name == "Anthropic Claude Sonnet 5.5 / 4.6"
@@ -140,6 +160,14 @@ def test_calculate_blended_rate_new_models():
     # gemini-4-argon: 0.70 * 2.00 + 0.20 * 10.00 + 0.10 * 0.10 = 1.40 + 2.00 + 0.01 = 3.4100
     argon_rate = calculate_blended_rate_per_million(DEFAULT_MODEL_PRICING["gemini-4-argon"])
     assert round(argon_rate, 4) == 3.4100
+
+    # gemini-4-carbon: 0.70 * 2.00 + 0.20 * 10.00 + 0.10 * 0.10 = 1.40 + 2.00 + 0.01 = 3.4100
+    carbon_rate = calculate_blended_rate_per_million(DEFAULT_MODEL_PRICING["gemini-4-carbon"])
+    assert round(carbon_rate, 4) == 3.4100
+
+    # gemini-4-hydrogen: 0.70 * 1.50 + 0.20 * 7.50 + 0.10 * 0.075 = 1.05 + 1.50 + 0.0075 = 2.5575
+    hydrogen_rate = calculate_blended_rate_per_million(DEFAULT_MODEL_PRICING["gemini-4-hydrogen"])
+    assert round(hydrogen_rate, 4) == 2.5575
 
     # claude-opus-5-5: 0.70 * 4.00 + 0.20 * 20.00 + 0.10 * 0.20 = 2.80 + 4.00 + 0.02 = 6.8200
     opus_rate = calculate_blended_rate_per_million(DEFAULT_MODEL_PRICING["claude-opus-5-5"])
